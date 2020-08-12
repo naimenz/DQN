@@ -11,7 +11,7 @@ Building on the general structure I used for Sarsa/REINFORCE-type algorithms, I'
 all the important bits and share parameters and stuff.
 """
 
-import numpy as np # using numpy as sparingly as possible, mainly for random numbers
+import numpy as np # using numpy as sparingly as possible, mainly for random numbers but also some other things
 import torch
 import torch.nn as nn
 import gym
@@ -85,8 +85,8 @@ class Buffer():
     """
 
     def __init__(self, max_size):
-        self.max_size = max_size# maximum number of elements to store
-        self.data = torch.zeros((max_size,), dtype=torch.float)# tensor to store the actual transitions
+        self.max_size = max_size # maximum number of elements to store
+        self.data = [None] * max_size # list of max_size for storing trainsition
 
         # I will keep track of the next index to insert at
         # Note that because this doesn't actually keep track of the state of
@@ -101,7 +101,7 @@ class Buffer():
     # add a transition to the buffer
     # TODO: Store transitions more efficiently (currently, most frames are stored 8 times(!) )
     def add(self, transition):
-        self.data[self.counter] = transition
+        self.data[self._counter] = transition
         self._counter += 1
         # handle wrap-around
         if self._counter == self.max_size:
@@ -111,7 +111,7 @@ class Buffer():
     # get how many elements are in the buffer
     def count(self):
         # if we have filled already, then return max_size
-        if filled:
+        if self.filled:
             return self.max_size
         # else counter hasn't wrapped around yet so return it instead
         else:
@@ -123,7 +123,7 @@ class Buffer():
         max_ix = self.count()
         # sample batch random indices 
         indices = torch.randint(low=0, high=max_ix, size=(batch_size,))
-        samples = [data[ix] for ix in indices]
+        samples = [self.data[ix] for ix in indices]
         return samples
 
 class DQN():
@@ -199,8 +199,10 @@ class DQN():
         downsampled_frame = grey_frame[::4, ::6]
         # Trying a crop because a lot of the vertical space is unused
         cropped_frame = downsampled_frame[40:80, :]
+        # I'm going to rescale so that values are in [0,1]
+        rescaled_frame = cropped_frame / 255
 
-        return cropped_frame
+        return rescaled_frame
 
     # encode the observation into a state based on the previous state and current obs
     def get_phi(self, s, obs):
@@ -249,18 +251,39 @@ class DQN():
 
         return ep_states, ep_acts, ep_rews
 
+    # given a minibatch of transitions, compute the sample gradient and take
+    # the step
+    def update_minibatch(self, minibatch):
+        """
+         TODO:
+         - actually implement this
+        """
+        pass
+
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
     # 10% of frames, and keep a buffer of 10% of frames
-    def train(self, N):
-        tenth_N = np.ceil(N/10)
+    def train(self, N=10000, lr=0.01):
+        tenth_N = int(N/10)
         buf = Buffer(max_size=tenth_N)
 
         # starting and ending epsilon
         eps0 = 1.
         eps1 = 0.1
-        step = (eps1 - eps0)/tenth_N # the quantity to add to eps every frame
-        eps = eps0
+        epstep = (eps1 - eps0)/tenth_N # the quantity to add to eps every frame
+        get_eps = lambda t: eps0 + t*epstep if t < tenth_N else eps1
+
+        # I'm going to try initialising the optimiser in this function,
+        # as it isn't needed outside of training.
+        # I'm using RMSProp because they used RMSProp in the paper and i'm lazy
+        # NOTE TODO: I have no idea what learning rate to use.
+        # I really don't want to spend too long messing with hyperparameters but I
+        # may have to. I'll start with 1e-2 because it seems like a sensible default
+        optim = torch.optim.RMSprop(self.qnet.parameters(), lr=1e-2)
+
+        # NOTE LOG: I'm going to track return per episode for testing
+        ep_ret = 0
+        ep_rets = []
 
         t = 0 # frame counter
         done = True # indicate that we should restart episode immediately
@@ -268,6 +291,13 @@ class DQN():
         # while we haven't seen enough frames
         while t < N:
             if done: # reset environment for a new episode
+
+                # NOTE LOG: tracking episode return
+                if t > 0: # if this isn't the first episode
+                    ep_rets.append(ep_ret)
+                print(f"Done {len(ep_rets)} episodes, last return was {ep_ret}")
+                ep_ret = 0
+
                 done = False
                 _ = env.reset()
                 obs = self.get_frame(env)
@@ -275,13 +305,17 @@ class DQN():
                 s = self.initial_phi(obs)
 
             # generate an action given the current state
-            act = self.get_act(s)
+            eps = get_eps(t)
+            act = self.get_act(s, eps)
 
             # act in the environment
             _, reward, done, _ = env.step(act.item())
 
+            # NOTE LOG: tracking episode return
+            ep_ret = self.gamma*ep_ret + reward
+
             # get the actual observation I'll be using
-            obsp = get_frame(env) 
+            obsp = self.get_frame(env) 
 
             # get the next state
             sp = self.get_phi(s, obsp)
@@ -292,21 +326,21 @@ class DQN():
 
             # NOW WE SAMPLE A MINIBATCH and update on that
             minibatch = buf.sample(batch_size=32)
-            self._update_minibatch(minibatch)
+            self.update_minibatch(minibatch)
 
-
-        
+            # prepare for next frame
+            t += 1
+            s = sp
+        # NOTE LOG: tracking episode returns
+        return ep_rets
 
 # make the environment and seed it
 env = gym.make('CartPole-v0')
 env.seed(SEED)
 # initialise agent
 dqn = DQN(env, gamma=0.99, eval_eps=0.05)
-rets = []
-for i in range(10):
-    ep_states, ep_acts, ep_rews = dqn.evaluate()
-    rets.append(np.sum(ep_rews))
-plt.plot(rets)
+ep_rets = dqn.train(N=1000, lr=1e-2)
+plt.plot(ep_rets)
 plt.show()
 # for s in ep_states:
 #     plt.imshow(s[-1])
