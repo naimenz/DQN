@@ -74,13 +74,13 @@ class Buffer():
     """
     Writing a class to store and sample experienced transitions.
 
-    I am implementing it with a list and a set maximum size. This way
+    I am implementing it with a tensor and a set maximum size. This way
     I can keep a running counter and use modulo arithmetic to keep the buffer
     filled up with new transitions automatically.
     """
     def __init__(self, max_size):
         self.max_size = max_size# maximum number of elements to store
-        self.data = [None] * max_size # list to store the actual transitions
+        self.data = torch.zeros((max_size,), dtype=torch.float)# tensor to store the actual transitions
 
         # I will keep track of the next index to insert at
         # Note that because this doesn't actually keep track of the state of
@@ -93,6 +93,7 @@ class Buffer():
         self.filled = False 
 
     # add a transition to the buffer
+    # TODO: Store transitions more efficiently (currently, most frames are stored 8 times(!) )
     def add(self, transition):
         self.data[self.counter] = transition
         self._counter += 1
@@ -114,12 +115,10 @@ class Buffer():
     def sample(self, batch_size):
         # largest index to consider
         max_ix = self.count()
-        indices = rng.
-
-
-
-
-
+        # sample batch random indices 
+        indices = torch.randint(low=0, high=max_ix, size=(batch_size,))
+        samples = self.data[indices]
+        return samples
 
 class DQN():
     """
@@ -169,15 +168,8 @@ class DQN():
 
     # takes a batch of states of shape (batch, self.state_dim) as input and returns Q values as outputs
     def compute_Qs(self, s):
-        """
-         TODO:
-         - Compute Qs with neural network
-        """
         # NOTE TEST
         return self.qnet(s)
-        # # TODO For now, just return 0s across the board
-        # batch = s.shape[0]
-        # return torch.zeros((batch, self.n_acts))
     
     # get action for a state based on a given eps value)
     # NOTE does not work with batches of states
