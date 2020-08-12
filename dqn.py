@@ -269,7 +269,7 @@ class DQN():
             # q = self.compute_Qs(s)[range(len(s)), a]
             targets = r + qsp - q
         # loss is mean of targets * Q
-        loss = torch.mean(targets * q)
+        loss = -torch.mean(targets * q)
         return loss
 
     # given a minibatch of transitions, compute the sample gradient and take
@@ -284,7 +284,7 @@ class DQN():
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
     # 10% of frames, and keep a buffer of 10% of frames
-    def train(self, N=10000, lr=0.01):
+    def train(self, N=10000, lr=1e-6):
         tenth_N = int(N/10)
         buf = Buffer(max_size=tenth_N, state_dim=self.state_dim)
 
@@ -300,7 +300,7 @@ class DQN():
         # NOTE TODO: I have no idea what learning rate to use.
         # I really don't want to spend too long messing with hyperparameters but I
         # may have to. I'll start with 1e-2 because it seems like a sensible default
-        optim = torch.optim.RMSprop(self.qnet.parameters(), lr=1e-2)
+        optim = torch.optim.RMSprop(self.qnet.parameters(), lr=lr)
 
         # NOTE LOG: I'm going to track return per episode for testing
         ep_ret = 0
@@ -361,7 +361,7 @@ env = gym.make('CartPole-v0')
 env.seed(SEED)
 # initialise agent
 dqn = DQN(env, gamma=0.99, eval_eps=0.05)
-ep_rets = dqn.train(N=10000, lr=1e-4)
+ep_rets = dqn.train(N=10000, lr=1e-5)
 plt.plot(ep_rets)
 plt.show()
 # for s in ep_states:
