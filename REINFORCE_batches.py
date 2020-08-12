@@ -1,7 +1,7 @@
 """
 Using REINFORCE with batch updates (i.e. what OpenAI calls VPG).
 
-I will use the CartPole-v1 environment from OpenAI Gym.
+I will use the CartPole-v0 environment from OpenAI Gym.
 
 As an experiment in structure, I will make an Agent class that contains its weights, policy, and 
 
@@ -85,7 +85,7 @@ class REINFORCE_Minibatches():
         return act, dist.entropy().item()
 
     # generate an episode using the current policy and return the observations, actions, and rewards
-    def generate_episode(self):
+    def generate_episode(self, render=False):
         # set up logging lists
         ep_obs = []
         ep_acts = []
@@ -99,6 +99,8 @@ class REINFORCE_Minibatches():
 
         # loop over steps of the episode
         while not done:
+            if render:
+                env.render()
             act, entropy = self.action(torch.tensor(obs, dtype=torch.float))
             obsp, reward, done, info = env.step(act.item())
             # track the step
@@ -224,14 +226,14 @@ class REINFORCE_Minibatches():
 
 
 # make the environment
-env = gym.make('CartPole-v1')
+env = gym.make('CartPole-v0')
 # manually specify the highs and lows of each variable
 obs_high = torch.tensor([2.4, 5, 0.418, 5], dtype=torch.float)
 obs_low = -obs_high
 
 # base learning rate to be divided by the number of tilings
 alpha = 2**-6
-n_batch = 30
+n_batch = 100
 # Moment of truth: train an agent for 50 batches of 5000 steps
 fig, ax = plt.subplots(figsize=(20,10))
 # for j in range(10):
@@ -250,8 +252,8 @@ REINFORCE_agent = REINFORCE_Minibatches(env, obs_low, obs_high, act_dim=2, alpha
 REINFORCE_agent.load_params('REINFORCE_policy_params.dat')
 returns = []
 entropies = []
-for i in range(100):
-    ep_obs, ep_acts, ep_rews, entropy = REINFORCE_agent.generate_episode()
+for i in range(10):
+    ep_obs, ep_acts, ep_rews, entropy = REINFORCE_agent.generate_episode(render=True)
     ep_ret = REINFORCE_agent._rets_from_rews(ep_rews)
     returns.append(ep_ret[0])
     entropies.append(entropy)
@@ -267,66 +269,4 @@ plt.title("Mean entropy per episode")
 toc = time.perf_counter()
 print(f"{n_batch} batches took {toc - tic:0.4f} seconds")
 plt.show()
-
-# # ============================================================================== 
-# # GRID SEARCH
-# # Here I will perform a grid search over the variables alpha and epsilon,
-# # doing five runs of 1000 episodes of each configuration.
-# # ============================================================================== 
-# folder = "REINFORCE Minibatch Gridsearch"
-# n_ep = 1000
-# # base learning rate to be divided by the number of tilings
-# alphas = [2**-8, 2**-9, 2**-10, 2**-11, 2**-12]
-# hidden_sizes = [[8], [16], [32], [64], [8, 8]]
-# t = 1
-# n_runs = 5
-# T = len(alphas) * len(hidden_sizes)
-
-# for alpha in alphas:
-#     for size_list in hidden_sizes:
-#         return_array = np.empty((n_runs, n_ep))
-#         entropy_array = np.empty((n_runs, n_ep))
-#         for j in range(n_runs):
-#             import time
-#             tic = time.perf_counter()
-#             REINFORCE_agent = REINFORCE_No_Tiles(env, obs_low, obs_high, act_dim=2, alpha=alpha, gamma=1., hidden_sizes=size_list)
-#             returns = []
-#             entropies = []
-#             for i in range(n_ep):
-#                 ep_ret, entropy = REINFORCE_agent.train_episode()
-#                 returns.append(ep_ret)
-#                 entropies.append(entropy)
-#             return_array[j, :] = returns
-#             entropy_array[j, :] = entropies
-#             toc = time.perf_counter()
-#             print(f"Run {j}/{n_runs} with configuration {t}/{T}, alpha={alpha},hidden sizes={size_list} done in {toc - tic:0.4f} seconds")
-#         return_end = f"{alpha}alpha_{size_list}hiddensizes_returns"
-#         entropy_end = f"{alpha}alpha_{size_list}hiddensizes_entropies"
-#         return_fname = os.path.join(folder, return_end)
-#         entropy_fname = os.path.join(folder, entropy_end)
-#         np.save(return_fname, return_array)
-#         np.save(entropy_fname, entropy_array)
-#         t += 1
-
-# # # base learning rate to be divided by the number of tilings
-# # alpha = 2**-11
-# # n_ep = 1000
-# # # Moment of truth: train an agent for 1000 episodes
-# # REINFORCE_agent = REINFORCE_No_Tiles(env, obs_low, obs_high, act_dim=2, alpha=alpha, gamma=1., hidden_sizes=[32])
-# # returns = []
-# # entropies = []
-# # for i in range(n_ep):
-# #     ep_ret, entropy = REINFORCE_agent.train_episode()
-# #     returns.append(ep_ret)
-# #     entropies.append(entropy)
-# #     print(f"Episode {i} had return {ep_ret} and mean entropy {entropy:0.4f}")
-
-# # fig, ax = plt.subplots(figsize=(20,10))
-# # fig.add_subplot(121)
-# # plt.plot(returns)
-# # plt.title("Return per episode")
-# # fig.add_subplot(122)
-# # plt.plot(entropies)
-# # plt.title("Mean entropy per episode")
-# # plt.show()
 
