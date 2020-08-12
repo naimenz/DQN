@@ -75,18 +75,19 @@ class Buffer():
     """
     Writing a class to store and sample experienced transitions.
 
-    I am implementing it with a LIST and a set maximum size.  I would have used
-    a np array or torch tensor but they don't allow arbitrary data storage and
-    I want to store tuples of mixed data. This means accessing a minibatch may
-    be a little slower.
-
+    I am now using FIVE tensors to store transitions instead of a list
     I will keep a running counter and use modulo arithmetic to keep the buffer
     filled up with new transitions automatically.  
     """
 
-    def __init__(self, max_size):
+    def __init__(self, max_size, state_dim):
         self.max_size = max_size # maximum number of elements to store
-        self.data = [None] * max_size # list of max_size for storing trainsition
+        # I may have been clever here and initialised these with the right sizes
+        self.s_tensor = torch.empty(size=(max_size,) + state_dim, dtype=torch.float)
+        self.a_tensor = torch.LongTensor(size=(max_size,))
+        self.r_tensor = torch.empty(size=(max_size,), dtype=torch.float)
+        self.sp_tensor = torch.empty(size=(max_size,) + state_dim, dtype=torch.float)
+        self.d_tensor = torch.empty(size=(max_size,), dtype=torch.bool)
 
         # I will keep track of the next index to insert at
         # Note that because this doesn't actually keep track of the state of
@@ -101,7 +102,13 @@ class Buffer():
     # add a transition to the buffer
     # TODO: Store transitions more efficiently (currently, most frames are stored 8 times(!) )
     def add(self, transition):
-        self.data[self._counter] = transition
+        s, a, r, sp, d = transition
+        counter = self._counter
+        self.s_tensor[counter] = s
+        self.a_tensor[counter] = a
+        self.r_tensor[counter] = r
+        self.sp_tensor[counter] = sp
+        self.d_tensor[counter] = d
         self._counter += 1
         # handle wrap-around
         if self._counter == self.max_size:
@@ -123,8 +130,12 @@ class Buffer():
         max_ix = self.count()
         # sample batch random indices 
         indices = torch.randint(low=0, high=max_ix, size=(batch_size,))
-        samples = [self.data[ix] for ix in indices]
-        return samples
+        s_sample = self.s_tensor[indices]
+        a_sample = self.a_tensor[indices]
+        r_sample = self.r_tensor[indices]
+        sp_sample = self.sp_tensor[indices]
+        d_sample = self.d_tensor[indices]
+        return s_sample, a_sample, r_sample, sp_sample, d_sample
 
 class DQN():
     """
@@ -148,7 +159,7 @@ class DQN():
         env.close()
         self.im_dim = x.shape # this is before processing
         self.processed_dim = self.preprocess_frame(x).shape
-        self.state_dim = self.processed_dim + (4,) # we will use 4 most recent frames as the states
+        self.state_dim = (4,) + self.processed_dim # we will use 4 most recent frames as the states
 
         # initialise the network TODO pass in params
         self.qnet = self.initialise_network()
@@ -164,7 +175,6 @@ class DQN():
         w = 100 # width
         n = 4 # number of frames in a state
         return QNet()
-
 
     # takes a batch of states of shape (batch, self.state_dim) as input and returns Q values as outputs
     # simple wrapper really
@@ -196,7 +206,6 @@ class DQN():
         cropped_frame = downsampled_frame[40:80, :]
         # I'm going to rescale so that values are in [0,1]
         rescaled_frame = cropped_frame / 255
-
         return rescaled_frame
 
     # encode the observation into a state based on the previous state and current obs
@@ -249,39 +258,35 @@ class DQN():
     # compute loss on a batch of transitions
     # gradient of this should be what we need
     # TODO: make this not a for-loop
-    def compute_loss(minibatch):
-        loss = torch.tensor(0, dtype=torch.float)
-        targets = []
-        # loop over transitions in the minibatch and add targets to list
-        for tr in minibatch:
-            s, a, r, sp, done = tr # unpacked tuple
-
-            # target is just reward if sp is terminal
-            if done:
-                target = r - compute_Qs(s.unsqueeze(0))[a.item()]
-            # otherwise it's r + gamma * max (Q,sp, a) over a
-            else:
-                target = r + self.gamma * torch.max(compute_Qs(sp.unsqueeze(0))) - compute_Qs(s.unsqueeze(0)[a.item()]
-            targets.append(target)
-        # convert targets into a tensor
-        targets = torch.tensor(targets, dtype=torch.float)
-        # multiple the targets (which shouldn't have a gradient as I just made them) by the Qs 
-        Qs = compute_Qs([
-
+    def compute_loss(self, s, a, r, sp, d):
+        # don't need gradients except for Q(s,a)
+        q = self.compute_Qs(s)[range(len(s)), a]
+        with torch.no_grad():
+            qsp = torch.max(self.compute_Qs(sp), dim=1)[0]
+            # setting terminal states to 0
+            qsp[d] = 0
+            # getting Q values for actions
+            # q = self.compute_Qs(s)[range(len(s)), a]
+            targets = r + qsp - q
+        # loss is mean of targets * Q
+        loss = torch.mean(targets * q)
+        return loss
 
     # given a minibatch of transitions, compute the sample gradient and take
     # the step
     # TODO: think about refactoring buffer to be multiple lists so I don't have to reorder here
-    def update_minibatch(self, minibatch):
-        loss = self.compute_loss(minibatch)
-
+    def update_minibatch(self, minibatch, optim):
+        optim.zero_grad()
+        loss = self.compute_loss(*minibatch)
+        loss.backward()
+        optim.step()
 
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
     # 10% of frames, and keep a buffer of 10% of frames
     def train(self, N=10000, lr=0.01):
         tenth_N = int(N/10)
-        buf = Buffer(max_size=tenth_N)
+        buf = Buffer(max_size=tenth_N, state_dim=self.state_dim)
 
         # starting and ending epsilon
         eps0 = 1.
@@ -312,6 +317,7 @@ class DQN():
                 if t > 0: # if this isn't the first episode
                     ep_rets.append(ep_ret)
                 print(f"Done {len(ep_rets)} episodes, last return was {ep_ret}")
+                print(f"Frame {t} of {N}")
                 ep_ret = 0
 
                 done = False
@@ -342,7 +348,7 @@ class DQN():
 
             # NOW WE SAMPLE A MINIBATCH and update on that
             minibatch = buf.sample(batch_size=32)
-            self.update_minibatch(minibatch)
+            self.update_minibatch(minibatch, optim)
 
             # prepare for next frame
             t += 1
@@ -355,7 +361,7 @@ env = gym.make('CartPole-v0')
 env.seed(SEED)
 # initialise agent
 dqn = DQN(env, gamma=0.99, eval_eps=0.05)
-ep_rets = dqn.train(N=1000, lr=1e-2)
+ep_rets = dqn.train(N=10000, lr=1e-4)
 plt.plot(ep_rets)
 plt.show()
 # for s in ep_states:
