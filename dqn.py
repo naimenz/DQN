@@ -152,11 +152,6 @@ class DQN():
 
         # initialise the network TODO pass in params
         self.qnet = self.initialise_network()
-
-        """
-         TODO:
-         - Initialise optimiser for the Q network
-        """
     
     # Function to initialise the convolutional NN used to predict Q values
     def initialise_network(self):
@@ -172,8 +167,8 @@ class DQN():
 
 
     # takes a batch of states of shape (batch, self.state_dim) as input and returns Q values as outputs
+    # simple wrapper really
     def compute_Qs(self, s):
-        # NOTE TEST
         return self.qnet(s)
     
     # get action for a state based on a given eps value)
@@ -251,14 +246,35 @@ class DQN():
 
         return ep_states, ep_acts, ep_rews
 
+    # compute loss on a batch of transitions
+    # gradient of this should be what we need
+    # TODO: make this not a for-loop
+    def compute_loss(minibatch):
+        loss = torch.tensor(0, dtype=torch.float)
+        targets = []
+        # loop over transitions in the minibatch and add targets to list
+        for tr in minibatch:
+            s, a, r, sp, done = tr # unpacked tuple
+
+            # target is just reward if sp is terminal
+            if done:
+                target = r - compute_Qs(s.unsqueeze(0))[a.item()]
+            # otherwise it's r + gamma * max (Q,sp, a) over a
+            else:
+                target = r + self.gamma * torch.max(compute_Qs(sp.unsqueeze(0))) - compute_Qs(s.unsqueeze(0)[a.item()]
+            targets.append(target)
+        # convert targets into a tensor
+        targets = torch.tensor(targets, dtype=torch.float)
+        # multiple the targets (which shouldn't have a gradient as I just made them) by the Qs 
+        Qs = compute_Qs([
+
+
     # given a minibatch of transitions, compute the sample gradient and take
     # the step
+    # TODO: think about refactoring buffer to be multiple lists so I don't have to reorder here
     def update_minibatch(self, minibatch):
-        """
-         TODO:
-         - actually implement this
-        """
-        pass
+        loss = self.compute_loss(minibatch)
+
 
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
