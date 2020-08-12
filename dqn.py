@@ -13,6 +13,7 @@ all the important bits and share parameters and stuff.
 
 import numpy as np # using numpy as sparingly as possible, mainly for random numbers
 import torch
+import torch.nn as nn
 import gym
 import matplotlib.pyplot as plt
 
@@ -21,7 +22,7 @@ torch.manual_seed(42)
 # using the new recommended numpy random number routines
 rng = np.random.default_rng(42)
 
-# TEST TO AVOID DRAWING, code from https://stackoverflow.com/a/61694644
+# test TO AVOID DRAWING, code from https://stackoverflow.com/a/61694644
 # It works but it's still slow as all hell
 def disable_view_window():
     from gym.envs.classic_control import rendering
@@ -33,6 +34,41 @@ def disable_view_window():
 
     rendering.Viewer.__init__ = constructor
 disable_view_window()
+
+# To start with, follow a very similar architecture to what they did for Atari games
+# NOTE I'm going to extend the Module class here: I've never really extended classes before so this is
+# a possible failure point
+class QNet(nn.Module):
+    """
+    This class defines the Deep Q-Network that will be used to predict Q-values of Cartpole states.
+
+    I have defined this OUTSIDE the main class. I'll hardcode the parameters for now.
+    TODO: Don't hardcode the parameters and make it good.
+    """
+    def __init__(self):
+        super(QNet, self).__init__()
+        # defining the necessary layers to be used in forward()
+        # note we have four frames in an input state
+        # all other parameters are basically arbitrary, but following similarly to the paper's Atari architecture
+        self.conv1 = nn.Conv2d(in_channels=4, out_channels=16, kernel_size=(8,8), stride=4)
+        self.conv2 = nn.Conv2d(int_channels=16, out_channels=32, kernel_size=(4,4), stride=(1,2))
+        # NOTE I calculated 135168 by hand, there may be a better way
+        self.linear1 = nn.Linear(135168, 256)
+        # using the outer class's number of actions as the final output
+        self.linear2 = nn.Linear(256, outer.n_acts)
+
+    # define how the net handles input
+    def forward(self, x):
+        conv1_relu = self.conv1(x).clamp(min=0)
+        conv2_relu = self.conv2(conv1_relu).clamp(min=0)
+        # flattening the output of the convs to be passed to linear
+        # BUT I don't want to flatten the batch dimension, so I'll say start_dim=1
+        flat = torch.flatten(conv2_relu, start_dim=1)
+        # appling the linear layers 
+        linear1_relu = self.linear1(flat).clamp(min=0)
+        output = self.linear2(linear1_relu)
+        # should be a (batch, n_acts) output of Q values
+        return output
 
 class DQN():
     """
@@ -46,7 +82,7 @@ class DQN():
         self.eval_eps = eval_eps # epsilon to be used at evaluation time (typically lower than training eps)
         self.env = env
         self.gamma = gamma # discount rate (I think they used 0.99)
-        self.n_acts = env.action_space.n
+        self.n_acts = env.action_space.n # get the number of discrete actions possible
         # quickly get the dimensions of the images we will be using
         env.reset()
         x = env.render(mode='rgb_array')
@@ -54,12 +90,26 @@ class DQN():
         self.im_dim = x.shape # this is before processing
         self.processed_dim = self.preprocess_frame(torch.as_tensor(x.copy(), dtype=torch.float)).shape
         self.state_dim = self.processed_dim + (4,) # we will use 4 most recent frames as the states
+        self.qnet = self.initialise_network()
 
         """
          TODO:
-         - Initialise Q network
          - Initialise optimiser for the Q network
         """
+
+    
+    # Function to initialise the convolutional NN used to predict Q values
+    def initialise_network(self):
+        """
+         TODO:
+         - Make this more useful - i.e. calculate the values to pass in to the network
+        """
+        # Our images are currently 40 x 100 (height, width)
+        h = 40 # height
+        w = 100 # width
+        n = 4 # number of frames in a state
+        return QNet()
+
 
     # takes a batch of states of shape (batch, self.state_dim) as input and returns Q values as outputs
     def compute_Qs(self, s):
@@ -67,9 +117,11 @@ class DQN():
          TODO:
          - Compute Qs with neural network
         """
-        # TODO For now, just return 0s across the board
-        batch = s.shape[0]
-        return torch.zeros((batch, self.n_acts))
+        # NOTE TEST
+        return self.qnet(s)
+        # # TODO For now, just return 0s across the board
+        # batch = s.shape[0]
+        # return torch.zeros((batch, self.n_acts))
     
     # get action for a state based on a given eps value)
     # NOTE does not work with batches of states
@@ -85,15 +137,15 @@ class DQN():
 
     # preprocess a frame for use in constructing states
     # TODO tidy up this processing, but it seems to work alright
+    # Currently takes 600x400 images and gives 40x100
     def preprocess_frame(self, frame):
         # converting to greyscale(?) by just averaging pixel colors in the last dimension(is this right?)
-        print(f"Frame information: type {type(frame)}, shape {frame.shape}, dtype {frame.dtype}")
+        # print(f"Frame information: type {type(frame)}, shape {frame.shape}, dtype {frame.dtype}")
         grey_frame = torch.mean(frame, dim=-1)
         # Now I want to downsample the image in both dimensions
         downsampled_frame = grey_frame[::4, ::6]
         # Trying a crop because a lot of the vertical space is unused
         cropped_frame = downsampled_frame[40:80, :]
-        print(cropped_frame.shape)
 
         return cropped_frame
 
@@ -129,10 +181,8 @@ class DQN():
 
         # loop over steps in the episode
         while not done:
-            # NOTE TEST going right always
             act = self.get_act(s, self.eval_eps) # returns a 1-element tensor
-            # _, reward, done, info = env.step(act.item()) # throw away their obs
-            _, reward, done, info = env.step(0) # throw away their obs
+            _, reward, done, info = env.step(act.item()) # throw away their obs
 
             # log state, act, reward
             ep_states.append(s)
