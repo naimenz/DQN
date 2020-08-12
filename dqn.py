@@ -48,12 +48,12 @@ class DQN():
         self.gamma = gamma # discount rate (I think they used 0.99)
         self.n_acts = env.action_space.n
         # quickly get the dimensions of the images we will be using
-        # unfortunately this will flicker the image on the screen at the moment
         env.reset()
         x = env.render(mode='rgb_array')
         env.close()
-        self.im_dim = x.shape # we won't actually be using these observations though
-        self.state_dim = self.im_dim + (4,) # we will use 4 most recent frames as the states
+        self.im_dim = x.shape # this is before processing
+        self.processed_dim = self.preprocess_frame(torch.as_tensor(x.copy(), dtype=torch.float)).shape
+        self.state_dim = self.processed_dim + (4,) # we will use 4 most recent frames as the states
 
         """
          TODO:
@@ -84,16 +84,18 @@ class DQN():
         return act
 
     # preprocess a frame for use in constructing states
-    # NOTE TODO At the moment I am not actually using state information (random agent)
-    # so just return the frame unaltered
+    # TODO tidy up this processing, but it seems to work alright
     def preprocess_frame(self, frame):
-        """
-         TODO:
-         - Convert to greyscale
-         - Downsample/crop as needed
-        """
-        # TODO placeholder: just return frame
-        return frame
+        # converting to greyscale(?) by just averaging pixel colors in the last dimension(is this right?)
+        print(f"Frame information: type {type(frame)}, shape {frame.shape}, dtype {frame.dtype}")
+        grey_frame = torch.mean(frame, dim=-1)
+        # Now I want to downsample the image in both dimensions
+        downsampled_frame = grey_frame[::4, ::6]
+        # Trying a crop because a lot of the vertical space is unused
+        cropped_frame = downsampled_frame[40:80, :]
+        print(cropped_frame.shape)
+
+        return cropped_frame
 
     # encode the observation into a state based on the previous state and current obs
     def get_state(self, s, obs):
@@ -121,14 +123,16 @@ class DQN():
         done = False
         _ = env.reset()
         # get frame of the animation
-        obs = torch.from_numpy(env.render(mode='rgb_array').copy())
+        obs = torch.as_tensor(env.render(mode='rgb_array').copy(), dtype=torch.float)
         # because we only have one frame so far, just make the initial state 4 copies of it
         s = self.initial_state(obs)
 
         # loop over steps in the episode
         while not done:
+            # NOTE TEST going right always
             act = self.get_act(s, self.eval_eps) # returns a 1-element tensor
-            _, reward, done, info = env.step(act.item()) # throw away their obs
+            # _, reward, done, info = env.step(act.item()) # throw away their obs
+            _, reward, done, info = env.step(0) # throw away their obs
 
             # log state, act, reward
             ep_states.append(s)
@@ -136,7 +140,7 @@ class DQN():
             ep_rews.append(reward)
 
             # get frame of the animation
-            obs = torch.from_numpy(env.render(mode='rgb_array').copy())
+            obs = torch.as_tensor(env.render(mode='rgb_array').copy(), dtype=torch.float)
             # construct new state from obsp
             s = self.get_state(s, obs)
 
@@ -147,14 +151,13 @@ env = gym.make('CartPole-v0')
 # initialise agent
 dqn = DQN(env, gamma=0.99, init_eps=1., eval_eps=1.)
 rets = []
-for i in range(10):
+for i in range(1):
     print(i)
     ep_states, ep_acts, ep_rews = dqn.evaluate()
-    print(ep_states[0].shape)
     rets.append(np.sum(ep_rews))
 plt.plot(rets)
 plt.show()
-# for s in ep_states:
-#     plt.imshow(s[-1])
-#     plt.show()
+for s in ep_states:
+    plt.imshow(s[-1])
+    plt.show()
 env.close()
