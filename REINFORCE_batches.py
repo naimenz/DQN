@@ -27,7 +27,7 @@ class REINFORCE_Minibatches():
     REINFORCE with minibatch updates to reduce variance.
 
     Functions to be called are .action(obs) which will return an action and
-    .train_episode() to run an episode's worth of training
+    .train_batch() to run a BATCH's worth of training
     """
     # I'll manually feed in the parameters needed 
     def __init__(self, env, obs_low, obs_high, act_dim, alpha, gamma, hidden_sizes, batch_size):
