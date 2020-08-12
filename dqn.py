@@ -51,11 +51,11 @@ class QNet(nn.Module):
         # note we have four frames in an input state
         # all other parameters are basically arbitrary, but following similarly to the paper's Atari architecture
         self.conv1 = nn.Conv2d(in_channels=4, out_channels=16, kernel_size=(8,8), stride=4)
-        self.conv2 = nn.Conv2d(int_channels=16, out_channels=32, kernel_size=(4,4), stride=(1,2))
-        # NOTE I calculated 135168 by hand, there may be a better way
-        self.linear1 = nn.Linear(135168, 256)
-        # using the outer class's number of actions as the final output
-        self.linear2 = nn.Linear(256, outer.n_acts)
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(4,4), stride=(1,2))
+        # NOTE TODO: figure out how exactly it converts from input to output channels; it's not multiplicative
+        self.linear1 = nn.Linear(2112, 256)
+        # NOTE: for now just hardcoding number of actions TODO: pass this in
+        self.linear2 = nn.Linear(256, 2)
 
     # define how the net handles input
     def forward(self, x):
@@ -70,6 +70,57 @@ class QNet(nn.Module):
         # should be a (batch, n_acts) output of Q values
         return output
 
+class Buffer():
+    """
+    Writing a class to store and sample experienced transitions.
+
+    I am implementing it with a list and a set maximum size. This way
+    I can keep a running counter and use modulo arithmetic to keep the buffer
+    filled up with new transitions automatically.
+    """
+    def __init__(self, max_size):
+        self.max_size = max_size# maximum number of elements to store
+        self.data = [None] * max_size # list to store the actual transitions
+
+        # I will keep track of the next index to insert at
+        # Note that because this doesn't actually keep track of the state of
+        # the buffer, it'll be internal and you should call .count() to see
+        # how full it is
+        self._counter = 0 
+
+        # because the counter will loop, to know how many experiences we have 
+        # i need to know if we've gone round already
+        self.filled = False 
+
+    # add a transition to the buffer
+    def add(self, transition):
+        self.data[self.counter] = transition
+        self._counter += 1
+        # handle wrap-around
+        if self._counter == self.max_size:
+            self._counter = 0
+            self.filled = True
+
+    # get how many elements are in the buffer
+    def count(self):
+        # if we have filled already, then return max_size
+        if filled:
+            return self.max_size
+        # else counter hasn't wrapped around yet so return it instead
+        else:
+            return self._counter
+
+    # sample a random batch of experiences
+    def sample(self, batch_size):
+        # largest index to consider
+        max_ix = self.count()
+        indices = rng.
+
+
+
+
+
+
 class DQN():
     """
     DQN class specifically for solving Cartpole. 
@@ -83,6 +134,7 @@ class DQN():
         self.env = env
         self.gamma = gamma # discount rate (I think they used 0.99)
         self.n_acts = env.action_space.n # get the number of discrete actions possible
+
         # quickly get the dimensions of the images we will be using
         env.reset()
         x = env.render(mode='rgb_array')
@@ -90,13 +142,17 @@ class DQN():
         self.im_dim = x.shape # this is before processing
         self.processed_dim = self.preprocess_frame(torch.as_tensor(x.copy(), dtype=torch.float)).shape
         self.state_dim = self.processed_dim + (4,) # we will use 4 most recent frames as the states
+
+        # initialising a list to act
+        self.buffer
+
         self.qnet = self.initialise_network()
+
 
         """
          TODO:
          - Initialise optimiser for the Q network
         """
-
     
     # Function to initialise the convolutional NN used to predict Q values
     def initialise_network(self):
@@ -199,15 +255,14 @@ class DQN():
 # make the environment
 env = gym.make('CartPole-v0')
 # initialise agent
-dqn = DQN(env, gamma=0.99, init_eps=1., eval_eps=1.)
+dqn = DQN(env, gamma=0.99, init_eps=1., eval_eps=0.05)
 rets = []
-for i in range(1):
-    print(i)
+for i in range(10):
     ep_states, ep_acts, ep_rews = dqn.evaluate()
     rets.append(np.sum(ep_rews))
 plt.plot(rets)
 plt.show()
-for s in ep_states:
-    plt.imshow(s[-1])
-    plt.show()
-env.close()
+# for s in ep_states:
+#     plt.imshow(s[-1])
+#     plt.show()
+# env.close()
