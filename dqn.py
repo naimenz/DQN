@@ -18,9 +18,10 @@ import gym
 import matplotlib.pyplot as plt
 
 # set a seed for reproducibility during implementation
-torch.manual_seed(42)
+SEED = 42
+torch.manual_seed(SEED)
 # using the new recommended numpy random number routines
-rng = np.random.default_rng(42)
+rng = np.random.default_rng(SEED)
 
 # test TO AVOID DRAWING, code from https://stackoverflow.com/a/61694644
 # It works but it's still slow as all hell
@@ -74,10 +75,15 @@ class Buffer():
     """
     Writing a class to store and sample experienced transitions.
 
-    I am implementing it with a tensor and a set maximum size. This way
-    I can keep a running counter and use modulo arithmetic to keep the buffer
-    filled up with new transitions automatically.
+    I am implementing it with a LIST and a set maximum size.  I would have used
+    a np array or torch tensor but they don't allow arbitrary data storage and
+    I want to store tuples of mixed data. This means accessing a minibatch may
+    be a little slower.
+
+    I will keep a running counter and use modulo arithmetic to keep the buffer
+    filled up with new transitions automatically.  
     """
+
     def __init__(self, max_size):
         self.max_size = max_size# maximum number of elements to store
         self.data = torch.zeros((max_size,), dtype=torch.float)# tensor to store the actual transitions
@@ -117,7 +123,7 @@ class Buffer():
         max_ix = self.count()
         # sample batch random indices 
         indices = torch.randint(low=0, high=max_ix, size=(batch_size,))
-        samples = self.data[indices]
+        samples = [data[ix] for ix in indices]
         return samples
 
 class DQN():
@@ -127,26 +133,25 @@ class DQN():
     """
     # we initialise with an environment for now, might need to add architecture once
     # I get the NN working.
-    def __init__(self, env, gamma, init_eps, eval_eps):
-        self.eps = init_eps # initial epsilon for use in eps-greedy policy: random action is chosen eps of the time
+    def __init__(self, env, gamma, eval_eps):
         self.eval_eps = eval_eps # epsilon to be used at evaluation time (typically lower than training eps)
         self.env = env
         self.gamma = gamma # discount rate (I think they used 0.99)
         self.n_acts = env.action_space.n # get the number of discrete actions possible
 
+        # convenience function for getting a frame from the env
+        self.get_frame = lambda env: torch.as_tensor(env.render(mode='rgb_array').copy(), dtype=torch.float)
+
         # quickly get the dimensions of the images we will be using
         env.reset()
-        x = env.render(mode='rgb_array')
+        x = self.get_frame(env)
         env.close()
         self.im_dim = x.shape # this is before processing
-        self.processed_dim = self.preprocess_frame(torch.as_tensor(x.copy(), dtype=torch.float)).shape
+        self.processed_dim = self.preprocess_frame(x).shape
         self.state_dim = self.processed_dim + (4,) # we will use 4 most recent frames as the states
 
-        # initialising a list to act
-        self.buffer
-
+        # initialise the network TODO pass in params
         self.qnet = self.initialise_network()
-
 
         """
          TODO:
@@ -198,7 +203,7 @@ class DQN():
         return cropped_frame
 
     # encode the observation into a state based on the previous state and current obs
-    def get_state(self, s, obs):
+    def get_phi(self, s, obs):
         processed_frame = self.preprocess_frame(obs)
         # bump oldest frame and add new one
         # we do this by dropping the first element of s and concatenating the new frame
@@ -207,7 +212,7 @@ class DQN():
         return sp
     
     # create an initial state by stacking four copies of the first frame
-    def initial_state(self, obs):
+    def initial_phi(self, obs):
         f = self.preprocess_frame(obs).unsqueeze(0)
         s = torch.cat((f,f,f,f))
         return s
@@ -223,9 +228,9 @@ class DQN():
         done = False
         _ = env.reset()
         # get frame of the animation
-        obs = torch.as_tensor(env.render(mode='rgb_array').copy(), dtype=torch.float)
+        obs = self.get_frame(env)
         # because we only have one frame so far, just make the initial state 4 copies of it
-        s = self.initial_state(obs)
+        s = self.initial_phi(obs)
 
         # loop over steps in the episode
         while not done:
@@ -238,16 +243,65 @@ class DQN():
             ep_rews.append(reward)
 
             # get frame of the animation
-            obs = torch.as_tensor(env.render(mode='rgb_array').copy(), dtype=torch.float)
-            # construct new state from obsp
-            s = self.get_state(s, obs)
+            obs = self.get_frame(env)
+            # construct new state from new obs
+            s = self.get_phi(s, obs)
 
         return ep_states, ep_acts, ep_rews
 
-# make the environment
+    # run the entire training algorithm for N FRAMES, not episodes
+    # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
+    # 10% of frames, and keep a buffer of 10% of frames
+    def train(self, N):
+        tenth_N = np.ceil(N/10)
+        buf = Buffer(max_size=tenth_N)
+
+        # starting and ending epsilon
+        eps0 = 1.
+        eps1 = 0.1
+        step = (eps1 - eps0)/tenth_N # the quantity to add to eps every frame
+        eps = eps0
+
+        t = 0 # frame counter
+        done = True # indicate that we should restart episode immediately
+        
+        # while we haven't seen enough frames
+        while t < N:
+            if done: # reset environment for a new episode
+                done = False
+                _ = env.reset()
+                obs = self.get_frame(env)
+                # because we only have one frame so far, just make the initial state 4 copies of it
+                s = self.initial_phi(obs)
+
+            # generate an action given the current state
+            act = self.get_act(s)
+
+            # act in the environment
+            _, reward, done, _ = env.step(act.item())
+
+            # get the actual observation I'll be using
+            obsp = get_frame(env) 
+
+            # get the next state
+            sp = self.get_phi(s, obsp)
+
+            # add all this to the experience buffer
+            # PLUS the done flag so I know if sp is terminal
+            buf.add((s, act, reward, sp, done))
+
+            # NOW WE SAMPLE A MINIBATCH and update on that
+            minibatch = buf.sample(batch_size=32)
+            self._update_minibatch(minibatch)
+
+
+        
+
+# make the environment and seed it
 env = gym.make('CartPole-v0')
+env.seed(SEED)
 # initialise agent
-dqn = DQN(env, gamma=0.99, init_eps=1., eval_eps=0.05)
+dqn = DQN(env, gamma=0.99, eval_eps=0.05)
 rets = []
 for i in range(10):
     ep_states, ep_acts, ep_rews = dqn.evaluate()
