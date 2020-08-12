@@ -21,6 +21,19 @@ torch.manual_seed(42)
 # using the new recommended numpy random number routines
 rng = np.random.default_rng(42)
 
+# TEST TO AVOID DRAWING, code from https://stackoverflow.com/a/61694644
+# It works but it's still slow as all hell
+def disable_view_window():
+    from gym.envs.classic_control import rendering
+    org_constructor = rendering.Viewer.__init__
+
+    def constructor(self, *args, **kwargs):
+        org_constructor(self, *args, **kwargs)
+        self.window.set_visible(visible=False)
+
+    rendering.Viewer.__init__ = constructor
+disable_view_window()
+
 class DQN():
     """
     DQN class specifically for solving Cartpole. 
@@ -133,8 +146,15 @@ class DQN():
 env = gym.make('CartPole-v0')
 # initialise agent
 dqn = DQN(env, gamma=0.99, init_eps=1., eval_eps=1.)
-ep_states, ep_acts, ep_rews = dqn.evaluate()
-for s in ep_states:
-    plt.imshow(s[-1])
-    plt.show()
+rets = []
+for i in range(10):
+    print(i)
+    ep_states, ep_acts, ep_rews = dqn.evaluate()
+    print(ep_states[0].shape)
+    rets.append(np.sum(ep_rews))
+plt.plot(rets)
+plt.show()
+# for s in ep_states:
+#     plt.imshow(s[-1])
+#     plt.show()
 env.close()
