@@ -176,12 +176,12 @@ class DQN():
         n = 4 # number of frames in a state
         return QNet()
 
-    # takes a batch of states of shape (batch, self.state_dim) as input and returns Q values as outputs
+    # takes a batch of states of shape (batch,)+ self.state_dim as input and returns Q values as outputs
     # simple wrapper really
     def compute_Qs(self, s):
         return self.qnet(s)
     
-    # get action for a state based on a given eps value)
+    # get action for a state based on a given eps value
     # NOTE does not work with batches of states
     def get_act(self, s, eps):
         # 1 - eps of the time we pick the action with highest Q
@@ -255,26 +255,74 @@ class DQN():
 
         return ep_states, ep_acts, ep_rews
 
+    # generate a set of holdout states randomly for use as validation
+    def generate_holdout(self, N):
+        # we will store N states, each of size state_dim
+        states = torch.empty(size=(N,) + self.state_dim, dtype=torch.float)
+
+        t = 0 # frame counter
+        done = True # indicate that we should restart episode immediately
+        
+        # while we haven't seen enough frames
+        while t < N:
+            if done: # reset environment for a new episode
+                done = False
+                _ = env.reset()
+                obs = self.get_frame(env)
+                # because we only have one frame so far, just make the initial state 4 copies of it
+                s = self.initial_phi(obs)
+
+            # save the state
+            states[t] = s
+            # generate a random action given the current state
+            act = self.get_act(s, 1.)
+            # act in the environment
+            _, reward, done, _ = env.step(act.item())
+
+            # get the actual observation I'll be using
+            obs = self.get_frame(env) 
+
+            # get the next state
+            s = self.get_phi(s, obs)
+            t += 1
+        return states
+
+    # evaluate the current Q function on a set of holdout states
+    # we return the mean of the maximum Q for each state
+    def evaluate_holdout(self, holdout):
+        Qmax = torch.max(self.compute_Qs(holdout), dim=1)[0]
+        return torch.mean(Qmax)
+
+    # functions to save and load a model
+    def save_params(self, filename):
+        s_dict = self.qnet.state_dict()
+        torch.save(s_dict, filename)
+        print(f"Parameters saved to {filename}")
+
+    def load_params(self, filename):
+        s_dict = torch.load(filename)
+        self.qnet.load_state_dict(s_dict)
+        print(f"Parameters loaded from {filename}")
+
     # compute loss on a batch of transitions
     # gradient of this should be what we need
-    # TODO: make this not a for-loop
     def compute_loss(self, s, a, r, sp, d):
         # don't need gradients except for Q(s,a)
-        q = self.compute_Qs(s)[range(len(s)), a]
+        all_q = self.compute_Qs(s)
+        q = all_q[range(len(s)), a]
         with torch.no_grad():
+            # get the 'values' part of the max function and drop the 'indices'
             qsp = torch.max(self.compute_Qs(sp), dim=1)[0]
             # setting terminal states to 0
             qsp[d] = 0
             # getting Q values for actions
-            # q = self.compute_Qs(s)[range(len(s)), a]
-            targets = r + qsp - q
+            targets = r + self.gamma * qsp - q
         # loss is mean of targets * Q
         loss = -torch.mean(targets * q)
         return loss
 
     # given a minibatch of transitions, compute the sample gradient and take
     # the step
-    # TODO: think about refactoring buffer to be multiple lists so I don't have to reorder here
     def update_minibatch(self, minibatch, optim):
         optim.zero_grad()
         loss = self.compute_loss(*minibatch)
@@ -284,7 +332,17 @@ class DQN():
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
     # 10% of frames, and keep a buffer of 10% of frames
-    def train(self, N=10000, lr=1e-6):
+    def train(self, N=10000, lr=1e-6, n_holdout=100):
+        n_evals = 50 # number of times to evaluate during training
+        # at the beginning of training we generate a set of 100(?) holdout states
+        # to be used to estimate the performance of the algorithm based
+        # on its average Q on these states
+        import time
+        tic = time.perf_counter()
+        holdout = self.generate_holdout(N=n_holdout)
+        toc = time.perf_counter()
+        print(f"Generating holdout took {toc - tic:0.4f} seconds")
+
         tenth_N = int(N/10)
         buf = Buffer(max_size=tenth_N, state_dim=self.state_dim)
 
@@ -305,19 +363,35 @@ class DQN():
         # NOTE LOG: I'm going to track return per episode for testing
         ep_ret = 0
         ep_rets = []
+        holdout_scores = []
+        recent_eps = 0
 
         t = 0 # frame counter
         done = True # indicate that we should restart episode immediately
         
+        # NOTE LOG: timing
+        import time
+        tic = time.perf_counter()
+        
         # while we haven't seen enough frames
         while t < N:
-            if done: # reset environment for a new episode
+            # NOTE LOG: evaluating 50 times throughout training
+            if n_evals*t % N == 0 and t > 0:
+                toc = time.perf_counter()
+                h_score = self.evaluate_holdout(holdout)
+                holdout_scores.append(h_score)
+                print(
+                f"""============== FRAME {t}/{N} ============== 
+                Last {N/n_evals} frames took {toc - tic:0.4f} seconds.
+                Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
+                Score on holdout is {h_score}.
+                """)
+                tic = time.perf_counter()
 
+            if done: # reset environment for a new episode
                 # NOTE LOG: tracking episode return
                 if t > 0: # if this isn't the first episode
                     ep_rets.append(ep_ret)
-                print(f"Done {len(ep_rets)} episodes, last return was {ep_ret}")
-                print(f"Frame {t} of {N}")
                 ep_ret = 0
 
                 done = False
@@ -354,15 +428,23 @@ class DQN():
             t += 1
             s = sp
         # NOTE LOG: tracking episode returns
-        return ep_rets
+        return ep_rets, holdout_scores
 
 # make the environment and seed it
 env = gym.make('CartPole-v0')
 env.seed(SEED)
 # initialise agent
 dqn = DQN(env, gamma=0.99, eval_eps=0.05)
-ep_rets = dqn.train(N=10000, lr=1e-5)
+ep_rets, holdout_scores = dqn.train(N=1000, lr=1e-5)
+np.save("DQNrets.npy", np.array(ep_rets))
+np.save("DQNh_scores.npy", np.array(holdout_scores))
+dqn.save_params("DQNparams.dat")
+dqn.load_params("DQNparams.dat")
 plt.plot(ep_rets)
+plt.title("Episode returns during training")
+plt.show()
+plt.plot(holdout_scores)
+plt.title("Holdout scores evaluated on 100 states")
 plt.show()
 # for s in ep_states:
 #     plt.imshow(s[-1])
