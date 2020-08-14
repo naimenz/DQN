@@ -480,30 +480,3 @@ Score on holdout is {h_score}.
         print(f"ALL TRAINING took {bigtoc - bigtic:0.4f} seconds")
         # NOTE LOG: tracking episode returns
         return ep_rets, holdout_scores
-
-# make the environment and seed it
-# env = gym.make('CartPole-v0')
-# env.seed(SEED)
-
-# # initialise agent
-# dqn = DQN(env, gamma=0.99, eval_eps=0.05)
-
-# # train
-# n_frames = 100000
-# lr = 1e-5
-# n_holdout = 1000
-# # save output
-# directory = 'run3'
-# ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, directory=directory)
-
-# np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
-# np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
-# dqn.save_params(f"{directory}/DQNparams.dat")
-# dqn.load_params(f"{directory}/DQNparams.dat")
-# plt.plot(ep_rets)
-# plt.title("Episode returns during training")
-# plt.show()
-# plt.plot(holdout_scores)
-# plt.title(f"Holdout scores evaluated on {n_holdout} states")
-# plt.show()
-# env.close()
