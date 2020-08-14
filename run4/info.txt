@@ -1,0 +1,9 @@
+# NOTE: first run after fixing buffer
+# IT WORKED (kind of)! Got average return of ~47
+- N=100000 (frames of training)
+- lr=1e-4 
+- n_holdout=1000
+Also maybe worth noting:
+- gamma=0.99
+- minibatch size=32
+

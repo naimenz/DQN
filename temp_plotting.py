@@ -17,21 +17,21 @@ def rets_from_rews(ep_rews, gamma):
     # return for final timestep is just 0
     return rets
 
-
 env = gym.make('CartPole-v0')
-dqn = DQN(env, gamma=0.99, eval_eps=0.0)
-dqn.load_params('run3/DQNparams.dat')
+dqn = DQN(env, gamma=0.99, eval_eps=0.05)
+dqn.load_params('run4/DQNparams.dat')
 # evaluating the learned model
 ep_rets  = []
-for i in range(100):
+for i in range(1000):
     ep_states, ep_acts, ep_rews = dqn.evaluate()
     rets = rets_from_rews(ep_rews, 0.99)
-    states = torch.stack(ep_states)
-    Qs = dqn.compute_Qs(states)
-    print(Qs)
+    # states = torch.stack(ep_states)
+    # Qs = dqn.compute_Qs(states)
+    # print(Qs)
     ep_rets.append(rets[0])
     print(i, "not random",rets[0])
-print(f"Mean return on 100 episodes is {np.mean(ep_rets)}")
+print(f"On 1000 episodes, mean return is {np.mean(ep_rets)}, std is {np.std(ep_rets)}")
+
 env.close()
 
 # plt.plot(ep_rets)

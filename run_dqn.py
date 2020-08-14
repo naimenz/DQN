@@ -25,7 +25,7 @@ dqn = DQN(env, gamma=0.99, eval_eps=0.05)
 
 # train
 n_frames = 100000
-lr = 1e-5
+lr = 1e-4
 n_holdout = 1000
 # save output
 directory = 'run4'

@@ -401,23 +401,29 @@ class DQN():
         # at the beginning of training we generate a set of 100(?) holdout states
         # to be used to estimate the performance of the algorithm based
         # on its average Q on these states
+        tenth_N = int(N/10)
+        buf_size = tenth_N
+        eps_epoch = tenth_N
+        buf = Buffer(max_size=buf_size, im_dim=self.processed_dim, state_depth=self.state_depth, max_ep_len=200)
+
+        # alias env
+        env = self.env
+
         print("=============================")
         print(f"BEGINNING TRAINING with N={N}, lr={lr}, n_holdout={n_holdout}")
+        print(f"buffer size={buf_size}, epsilon epoch={eps_epoch}")
         print("=============================")
-
         import time
         tic = time.perf_counter()
         holdout = self.generate_holdout(N=n_holdout)
         toc = time.perf_counter()
         print(f"Generating holdout took {toc - tic:0.4f} seconds")
 
-        tenth_N = int(N/10)
-        buf = Buffer(max_size=tenth_N, im_dim=self.processed_dim, state_depth=self.state_depth)
 
         # starting and ending epsilon
         eps0 = 1.
         eps1 = 0.1
-        epstep = (eps1 - eps0)/tenth_N # the quantity to add to eps every frame
+        epstep = (eps1 - eps0)/eps_epoch # the quantity to add to eps every frame
         get_eps = lambda t: eps0 + t*epstep if t < tenth_N else eps1
 
         # I'm going to try initialising the optimiser in this function,
@@ -461,7 +467,7 @@ Score on holdout is {h_score}.
                     np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
                     np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
                     # NOTE LOG I will overwrite parameters each time because they are big
-                    dqn.save_params(f"{directory}/DQNparams.dat")
+                    self.save_params(f"{directory}/DQNparams.dat")
                 tic = time.perf_counter()
 
             if done: # reset environment for a new episode
@@ -499,7 +505,7 @@ Score on holdout is {h_score}.
 
             # add all this to the experience buffer
             # PLUS the done flag so I know if sp is terminal
-            # AND the start flag so I know if this is the first frame
+            # AND the various times
             buf.add((s, act, reward, sp, done, ep_t, t))
             # if we have added to the buffer then we are no longer in the first state
             start = False
