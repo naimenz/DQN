@@ -81,18 +81,23 @@ class Buffer():
     This will be slightly more fiddly but be roughly 8x more efficient
     """
 
-    def __init__(self, max_size, im_dim, state_depth):
+    def __init__(self, max_size, im_dim, state_depth, max_ep_len):
         self.max_size = max_size # maximum number of elements to store
         self.im_dim = im_dim # dimensions of each frame
         self.state_depth = state_depth # number of frames in a state
         # storing FRAMES instead of STATES
-        # I need to store 4 (or state_depth) extra frames because the first state relies on history
-        self.frame_tensor = torch.empty(size=(max_size + state_depth,) + im_dim, dtype=torch.float)
+        # Actually we need to store enough to keep an entire extra episode because otherwise we could 
+        # overwrite transitions in a current episode
+        self.frame_size = max_size + max_ep_len
+        self.frame_tensor = torch.empty(size=(self.frame_size,) + im_dim, dtype=torch.float)
+
         self.a_tensor = torch.LongTensor(size=(max_size,))
         self.r_tensor = torch.empty(size=(max_size,), dtype=torch.float)
         self.d_tensor = torch.empty(size=(max_size,), dtype=torch.bool)
-        # keep track of how many duplicate frames to put at the beginning
-        self.duplicate_tensor = torch.empty(size=(max_size,), dtype=torch.int) 
+        
+        # keep track of which frames we need to construct the states
+        self.s_ix_tensor = torch.LongTensor(size=(max_size, state_depth))
+        self.sp_ix_tensor = torch.LongTensor(size=(max_size, state_depth))
 
         # I will keep track of the next index to insert at
         # Note that because this doesn't actually keep track of the state of
@@ -105,11 +110,12 @@ class Buffer():
         self.filled = False 
 
     # add a transition to the buffer
-    # We pass the state, the action, the reward, the next state, and then two flags:
+    # We pass the state, the action, the reward, the next state, and then three extras:
     # done: is sp terminal?
-    # start: is s the first state of a transition?
+    # t: time from start of episode (if it's greater than state_depth then it doesn't matter)
+    # fcount: the frame of training we are on currently
     def add(self, transition):
-        s, a, r, sp, done, start = transition
+        s, a, r, sp, done, t, fcount = transition
         # the index of a, r, and done tensors to fill up, and what we aim to reconstruct
         counter = self._counter
         # writing to the easy buffers
@@ -117,15 +123,37 @@ class Buffer():
         self.r_tensor[counter] = r
         self.d_tensor[counter] = done
         # handling the hard frame buffer differently depending on if this is the initial state
-        # if this is the first transition, need to store the whole first state as it's new
-        if start: 
-            # add s first
-            self.frame_tensor[counter:counter+self.state_depth] = s
+        # if this is the first transition, we need to store frames for initial obs and first step
+        # these will be the LAST two frames of sp
+        if t == 0:
+            # NOTE: This only works because the done flag tells us if we care about the sp state
+            # and if we don't it doesn't matter what's in the buffer there so we can overwrite fcount
+            self.frame_tensor[fcount % self.frame_size] = s[-1]
+            self.frame_tensor[(fcount + 1) % self.frame_size] = sp[-1]
         # if this isn't the first transition, we only need to store the new frame sp[-1]
-        # but for both, we need to store the new frame 
-        self.frame_tensor[counter+self.state_depth] = sp[-1]
-        # NOTE: This only works because the done flag tells us if we care about the sp state
-        # and if we don't it doesn't matter what's in the buffer there
+        else:
+            self.frame_tensor[(fcount + 1) % self.frame_size] = sp[-1]
+
+        # NOW we have to construct the tuples that tell us which frames to access
+        # if we are near the beginning of the episode, we need multiple copies of the first frame
+        s_ix = []
+        if t < self.state_depth - 1:
+            # first frame will be fcount - t
+            first_frame_ix = fcount - t
+            # we need state_depth - t of these 
+            s_ix += [first_frame_ix] * (self.state_depth - t)
+            # we'll need the t next frames as well
+            for i in range(1, t+1):
+                s_ix.append(first_frame_ix + i)
+        # otherwise we just need the 'state_depth' states from fcount-self.state_depth+1 up to 
+        # and including fcount
+        else:
+            for i in range(1, self.state_depth+1):
+                s_ix.append(fcount - self.state_depth + i)
+        # in both cases, sp_ix is just all but the first of s_ix with fcount + 1 o nthe front
+        sp_ix = s_ix[1:] + [fcount+1]
+        self.s_ix_tensor[counter] = torch.tensor(s_ix, dtype=torch.long)
+        self.sp_ix_tensor[counter] = torch.tensor(sp_ix, dtype=torch.long)
 
         self._counter += 1
         # handle wrap-around
@@ -153,10 +181,14 @@ class Buffer():
         r_sample = self.r_tensor[indices]
         d_sample = self.d_tensor[indices]
         # now I need to reconstruct s and sp
-        # TODO: make this not look so horrible
+        s_ix_sample = self.s_ix_tensor[indices]
+        sp_ix_sample = self.sp_ix_tensor[indices]
+        # get the corresponding frames
         ftens = self.frame_tensor
-        s_sample = torch.stack([ftens[ix: ix+self.state_depth] for ix in indices])
-        sp_sample = torch.stack([ftens[ix+1: ix+self.state_depth+1] for ix in indices])
+        # TODO: make this not look so ABSOLUTELY horrible
+        s_sample = torch.stack([torch.stack([ftens[i % self.frame_size] for i in ix]) for ix in s_ix_sample])
+        sp_sample = torch.stack([torch.stack([ftens[i % self.frame_size] for i in ix]) for ix in sp_ix_sample])
+
         return s_sample, a_sample, r_sample, sp_sample, d_sample
 
 class DQN():
@@ -438,6 +470,9 @@ Score on holdout is {h_score}.
                     ep_rets.append(ep_ret)
                 ep_ret = 0
 
+                # NOTE tracking episode time 
+                ep_t = 0
+
                 done = False
                 # NOTE TEST: new start flag to say whether this is the first state of an episode
                 start = True
@@ -465,7 +500,7 @@ Score on holdout is {h_score}.
             # add all this to the experience buffer
             # PLUS the done flag so I know if sp is terminal
             # AND the start flag so I know if this is the first frame
-            buf.add((s, act, reward, sp, done, start))
+            buf.add((s, act, reward, sp, done, ep_t, t))
             # if we have added to the buffer then we are no longer in the first state
             start = False
 
@@ -475,6 +510,7 @@ Score on holdout is {h_score}.
 
             # prepare for next frame
             t += 1
+            ep_t += 1 # updating the episode time as well
             s = sp
         bigtoc = time.perf_counter()
         print(f"ALL TRAINING took {bigtoc - bigtic:0.4f} seconds")
