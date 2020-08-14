@@ -75,19 +75,24 @@ class Buffer():
     """
     Writing a class to store and sample experienced transitions.
 
-    I am now using FIVE tensors to store transitions instead of a list
-    I will keep a running counter and use modulo arithmetic to keep the buffer
-    filled up with new transitions automatically.  
+    NOTE: I am completely rewriting this because it's just using too much memory.
+    Instead of storing full transitions, I will store action, rewards, and terminal flags
+    as before but store frames individually and reconstruct states as needed.
+    This will be slightly more fiddly but be roughly 8x more efficient
     """
 
-    def __init__(self, max_size, state_dim):
+    def __init__(self, max_size, im_dim, state_depth):
         self.max_size = max_size # maximum number of elements to store
-        # I may have been clever here and initialised these with the right sizes
-        self.s_tensor = torch.empty(size=(max_size,) + state_dim, dtype=torch.float)
+        self.im_dim = im_dim # dimensions of each frame
+        self.state_depth = state_depth # number of frames in a state
+        # storing FRAMES instead of STATES
+        # I need to store 4 (or state_depth) extra frames because the first state relies on history
+        self.frame_tensor = torch.empty(size=(max_size + state_depth,) + im_dim, dtype=torch.float)
         self.a_tensor = torch.LongTensor(size=(max_size,))
         self.r_tensor = torch.empty(size=(max_size,), dtype=torch.float)
-        self.sp_tensor = torch.empty(size=(max_size,) + state_dim, dtype=torch.float)
         self.d_tensor = torch.empty(size=(max_size,), dtype=torch.bool)
+        # keep track of how many duplicate frames to put at the beginning
+        self.duplicate_tensor = torch.empty(size=(max_size,), dtype=torch.int) 
 
         # I will keep track of the next index to insert at
         # Note that because this doesn't actually keep track of the state of
@@ -100,15 +105,28 @@ class Buffer():
         self.filled = False 
 
     # add a transition to the buffer
-    # TODO: Store transitions more efficiently (currently, most frames are stored 8 times(!) )
+    # We pass the state, the action, the reward, the next state, and then two flags:
+    # done: is sp terminal?
+    # start: is s the first state of a transition?
     def add(self, transition):
-        s, a, r, sp, d = transition
+        s, a, r, sp, done, start = transition
+        # the index of a, r, and done tensors to fill up, and what we aim to reconstruct
         counter = self._counter
-        self.s_tensor[counter] = s
+        # writing to the easy buffers
         self.a_tensor[counter] = a
         self.r_tensor[counter] = r
-        self.sp_tensor[counter] = sp
-        self.d_tensor[counter] = d
+        self.d_tensor[counter] = done
+        # handling the hard frame buffer differently depending on if this is the initial state
+        # if this is the first transition, need to store the whole first state as it's new
+        if start: 
+            # add s first
+            self.frame_tensor[counter:counter+self.state_depth] = s
+        # if this isn't the first transition, we only need to store the new frame sp[-1]
+        # but for both, we need to store the new frame 
+        self.frame_tensor[counter+self.state_depth] = sp[-1]
+        # NOTE: This only works because the done flag tells us if we care about the sp state
+        # and if we don't it doesn't matter what's in the buffer there
+
         self._counter += 1
         # handle wrap-around
         if self._counter == self.max_size:
@@ -125,16 +143,20 @@ class Buffer():
             return self._counter
 
     # sample a random batch of experiences
+    # NOTE this is tricky now because I need to reconstruct the states
     def sample(self, batch_size):
         # largest index to consider
         max_ix = self.count()
         # sample batch random indices 
         indices = torch.randint(low=0, high=max_ix, size=(batch_size,))
-        s_sample = self.s_tensor[indices]
         a_sample = self.a_tensor[indices]
         r_sample = self.r_tensor[indices]
-        sp_sample = self.sp_tensor[indices]
         d_sample = self.d_tensor[indices]
+        # now I need to reconstruct s and sp
+        # TODO: make this not look so horrible
+        ftens = self.frame_tensor
+        s_sample = torch.stack([ftens[ix: ix+self.state_depth] for ix in indices])
+        sp_sample = torch.stack([ftens[ix+1: ix+self.state_depth+1] for ix in indices])
         return s_sample, a_sample, r_sample, sp_sample, d_sample
 
 class DQN():
@@ -159,7 +181,8 @@ class DQN():
         env.close()
         self.im_dim = x.shape # this is before processing
         self.processed_dim = self.preprocess_frame(x).shape
-        self.state_dim = (4,) + self.processed_dim # we will use 4 most recent frames as the states
+        self.state_depth = 4 # number of frames in a state, hardcoded for now
+        self.state_dim = (self.state_depth,) + self.processed_dim # we will use 4 most recent frames as the states
 
         # initialise the network TODO pass in params
         self.qnet = self.initialise_network()
@@ -220,10 +243,10 @@ class DQN():
         sp = torch.cat((s[1:], processed_frame.unsqueeze(0)))
         return sp
     
-    # create an initial state by stacking four copies of the first frame
+    # create an initial state by stacking four (or self.state_depth) copies of the first frame
     def initial_phi(self, obs):
         f = self.preprocess_frame(obs).unsqueeze(0)
-        s = torch.cat((f,f,f,f))
+        s = torch.cat(self.state_depth * (f,))
         return s
 
     # run an episode in evaluation mode 
@@ -341,7 +364,7 @@ class DQN():
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
     # 10% of frames, and keep a buffer of 10% of frames
-    def train(self, N=10000, lr=1e-6, n_holdout=100):
+    def train(self, N=10000, lr=1e-6, n_holdout=100, directory=None):
         n_evals = 50 # number of times to evaluate during training
         # at the beginning of training we generate a set of 100(?) holdout states
         # to be used to estimate the performance of the algorithm based
@@ -357,7 +380,7 @@ class DQN():
         print(f"Generating holdout took {toc - tic:0.4f} seconds")
 
         tenth_N = int(N/10)
-        buf = Buffer(max_size=tenth_N, state_dim=self.state_dim)
+        buf = Buffer(max_size=tenth_N, im_dim=self.processed_dim, state_depth=self.state_depth)
 
         # starting and ending epsilon
         eps0 = 1.
@@ -401,11 +424,12 @@ Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
 Score on holdout is {h_score}.
                 """)
 
-                # NOTE LOG saving the stats so far
-                np.save(f"run2/temp/{t}DQNrets.npy", np.array(ep_rets))
-                np.save(f"run2/temp/{t}DQNh_scores.npy", np.array(holdout_scores))
-                # NOTE LOG I will overwrite parameters each time because they are big
-                dqn.save_params("run2/temp/tempDQNparams.dat")
+                # NOTE LOG saving the stats so far 
+                if not directory is None:
+                    np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
+                    np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
+                    # NOTE LOG I will overwrite parameters each time because they are big
+                    dqn.save_params(f"{directory}/DQNparams.dat")
                 tic = time.perf_counter()
 
             if done: # reset environment for a new episode
@@ -415,6 +439,8 @@ Score on holdout is {h_score}.
                 ep_ret = 0
 
                 done = False
+                # NOTE TEST: new start flag to say whether this is the first state of an episode
+                start = True
                 _ = env.reset()
                 obs = self.get_frame(env)
                 # because we only have one frame so far, just make the initial state 4 copies of it
@@ -438,7 +464,10 @@ Score on holdout is {h_score}.
 
             # add all this to the experience buffer
             # PLUS the done flag so I know if sp is terminal
-            buf.add((s, act, reward, sp, done))
+            # AND the start flag so I know if this is the first frame
+            buf.add((s, act, reward, sp, done, start))
+            # if we have added to the buffer then we are no longer in the first state
+            start = False
 
             # NOW WE SAMPLE A MINIBATCH and update on that
             minibatch = buf.sample(batch_size=32)
@@ -460,20 +489,21 @@ Score on holdout is {h_score}.
 # dqn = DQN(env, gamma=0.99, eval_eps=0.05)
 
 # # train
-# n_frames = 1000000
-# lr = 1e-6
+# n_frames = 100000
+# lr = 1e-5
 # n_holdout = 1000
-# ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout)
-
 # # save output
-# np.save("run2/DQNrets.npy", np.array(ep_rets))
-# np.save("run2/DQNh_scores.npy", np.array(holdout_scores))
-# dqn.save_params("run2/DQNparams.dat")
-# dqn.load_params("run2/DQNparams.dat")
+# directory = 'run3'
+# ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, directory=directory)
+
+# np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
+# np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
+# dqn.save_params(f"{directory}/DQNparams.dat")
+# dqn.load_params(f"{directory}/DQNparams.dat")
 # plt.plot(ep_rets)
 # plt.title("Episode returns during training")
 # plt.show()
 # plt.plot(holdout_scores)
-# plt.title("Holdout scores evaluated on 1000 states")
+# plt.title(f"Holdout scores evaluated on {n_holdout} states")
 # plt.show()
 # env.close()

@@ -18,18 +18,22 @@ def rets_from_rews(ep_rews, gamma):
     return rets
 
 env = gym.make('CartPole-v0')
-dqn = DQN(env, gamma=0.99, eval_eps=1.)
-dqn.load_params('run2/temp/tempDQNparams.dat')
+dqn = DQN(env, gamma=0.99, eval_eps=0.05)
+dqn.load_params('run3/DQNparams.dat')
 # evaluating the learned model
 ep_rets  = []
 for i in range(100):
     ep_states, ep_acts, ep_rews = dqn.evaluate()
-    rets = rets_from_rews(ep_rews, 1.)
+    rets = rets_from_rews(ep_rews, 0.99)
     ep_rets.append(rets[0])
-    print(i, rets[0])
+    print(i, "not random",rets[0])
+    # ep_states, ep_acts, ep_rews = dqn.evaluate()
+    # rets = rets_from_rews(ep_rews, 0.99)
+    # random_rets.append(rets[0])
+    # print(i, "random",rets[0])
 
 print(f"Mean return on 100 episodes is {np.mean(ep_rets)}")
 plt.plot(ep_rets)
 plt.show()
 
-
+env.close()
