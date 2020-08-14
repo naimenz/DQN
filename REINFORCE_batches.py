@@ -21,7 +21,6 @@ np.random.seed(SEED)
 import gym
 import os
 
-
 class REINFORCE_Minibatches():
     """
     REINFORCE with minibatch updates to reduce variance.
@@ -84,6 +83,20 @@ class REINFORCE_Minibatches():
         act = dist.sample()
         return act, dist.entropy().item()
 
+    # NOTE TEST proprocessing from dqn file
+    def preprocess_frame(self, frame):
+        # converting to greyscale(?) by just averaging pixel colors in the last dimension(is this right?)
+        # print(f"Frame information: type {type(frame)}, shape {frame.shape}, dtype {frame.dtype}")
+        grey_frame = torch.mean(frame, dim=-1)
+        # Now I want to downsample the image in both dimensions
+        downsampled_frame = grey_frame[::4, ::6]
+        # Trying a crop because a lot of the vertical space is unused
+        cropped_frame = downsampled_frame[40:80, :]
+        # I'm going to rescale so that values are in [0,1]
+        rescaled_frame = cropped_frame / 255
+        return rescaled_frame
+
+
     # generate an episode using the current policy and return the observations, actions, and rewards
     def generate_episode(self, render=False):
         # set up logging lists
@@ -100,7 +113,12 @@ class REINFORCE_Minibatches():
         # loop over steps of the episode
         while not done:
             if render:
-                env.render()
+                # NOTE TEST rendering with the downsampling from dqn
+                frame = torch.as_tensor(env.render(mode='rgb_array').copy(), dtype=torch.float)
+                pr_frame = self.preprocess_frame(frame)
+                plt.imshow(pr_frame)
+                plt.title(f"Timestep {len(ep_obs)}")
+                plt.show()
             act, entropy = self.action(torch.tensor(obs, dtype=torch.float))
             obsp, reward, done, info = env.step(act.item())
             # track the step

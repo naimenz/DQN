@@ -196,6 +196,7 @@ class DQN():
     # preprocess a frame for use in constructing states
     # TODO tidy up this processing, but it seems to work alright
     # Currently takes 600x400 images and gives 40x100
+    # NOTE I'm now inverting the image so it's mostly 0 rather than mostly 1
     def preprocess_frame(self, frame):
         # converting to greyscale(?) by just averaging pixel colors in the last dimension(is this right?)
         # print(f"Frame information: type {type(frame)}, shape {frame.shape}, dtype {frame.dtype}")
@@ -206,7 +207,9 @@ class DQN():
         cropped_frame = downsampled_frame[40:80, :]
         # I'm going to rescale so that values are in [0,1]
         rescaled_frame = cropped_frame / 255
-        return rescaled_frame
+        # NOTE inverting so that image is mostly 0
+        invert_frame = 1 - rescaled_frame
+        return invert_frame
 
     # encode the observation into a state based on the previous state and current obs
     def get_phi(self, s, obs):
@@ -225,6 +228,9 @@ class DQN():
 
     # run an episode in evaluation mode 
     def evaluate(self):
+        # alias env
+        env = self.env
+        
         # lists for logging
         ep_states = []
         ep_acts = []
@@ -262,6 +268,9 @@ class DQN():
 
         t = 0 # frame counter
         done = True # indicate that we should restart episode immediately
+
+        # alias env
+        env = self.env
         
         # while we haven't seen enough frames
         while t < N:
@@ -337,6 +346,10 @@ class DQN():
         # at the beginning of training we generate a set of 100(?) holdout states
         # to be used to estimate the performance of the algorithm based
         # on its average Q on these states
+        print("=============================")
+        print(f"BEGINNING TRAINING with N={N}, lr={lr}, n_holdout={n_holdout}")
+        print("=============================")
+
         import time
         tic = time.perf_counter()
         holdout = self.generate_holdout(N=n_holdout)
@@ -371,21 +384,28 @@ class DQN():
         
         # NOTE LOG: timing
         import time
+        bigtic = time.perf_counter()
         tic = time.perf_counter()
         
         # while we haven't seen enough frames
         while t < N:
             # NOTE LOG: evaluating 50 times throughout training
             if n_evals*t % N == 0 and t > 0:
-                toc = time.perf_counter()
                 h_score = self.evaluate_holdout(holdout)
                 holdout_scores.append(h_score)
+                toc = time.perf_counter()
                 print(
                 f"""============== FRAME {t}/{N} ============== 
-                Last {N/n_evals} frames took {toc - tic:0.4f} seconds.
-                Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
-                Score on holdout is {h_score}.
+Last {N/n_evals} frames took {toc - tic:0.4f} seconds.
+Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
+Score on holdout is {h_score}.
                 """)
+
+                # NOTE LOG saving the stats so far
+                np.save(f"run2/temp/{t}DQNrets.npy", np.array(ep_rets))
+                np.save(f"run2/temp/{t}DQNh_scores.npy", np.array(holdout_scores))
+                # NOTE LOG I will overwrite parameters each time because they are big
+                dqn.save_params("run2/temp/tempDQNparams.dat")
                 tic = time.perf_counter()
 
             if done: # reset environment for a new episode
@@ -427,23 +447,33 @@ class DQN():
             # prepare for next frame
             t += 1
             s = sp
+        bigtoc = time.perf_counter()
+        print(f"ALL TRAINING took {bigtoc - bigtic:0.4f} seconds")
         # NOTE LOG: tracking episode returns
         return ep_rets, holdout_scores
 
 # make the environment and seed it
 # env = gym.make('CartPole-v0')
 # env.seed(SEED)
+
 # # initialise agent
 # dqn = DQN(env, gamma=0.99, eval_eps=0.05)
-# ep_rets, holdout_scores = dqn.train(N=100000, lr=1e-5, n_holdout=500)
-# np.save("DQNrets.npy", np.array(ep_rets))
-# np.save("DQNh_scores.npy", np.array(holdout_scores))
-# dqn.save_params("DQNparams.dat")
-# dqn.load_params("DQNparams.dat")
+
+# # train
+# n_frames = 1000000
+# lr = 1e-6
+# n_holdout = 1000
+# ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout)
+
+# # save output
+# np.save("run2/DQNrets.npy", np.array(ep_rets))
+# np.save("run2/DQNh_scores.npy", np.array(holdout_scores))
+# dqn.save_params("run2/DQNparams.dat")
+# dqn.load_params("run2/DQNparams.dat")
 # plt.plot(ep_rets)
 # plt.title("Episode returns during training")
 # plt.show()
 # plt.plot(holdout_scores)
-# plt.title("Holdout scores evaluated on 100 states")
+# plt.title("Holdout scores evaluated on 1000 states")
 # plt.show()
 # env.close()

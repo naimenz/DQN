@@ -2,15 +2,34 @@
 Temp file for taking a look at the results of the run
 """
 import numpy as np
-import matplotlib.pyplot
+import matplotlib.pyplot as plt
 import gym
+import torch
 
 # pull DQN over
 from dqn import DQN
+def rets_from_rews(ep_rews, gamma):
+    T = len(ep_rews) 
+    rets = torch.tensor(ep_rews, dtype=torch.float)
+    for i in reversed(range(T)):
+        if i < T-1:
+            rets[i] += gamma*rets[i+1]
+    # return for final timestep is just 0
+    return rets
 
 env = gym.make('CartPole-v0')
-dqn = DQN(env, gamma=0.99, eval_eps=0.05)
-dqn.load_params('run1/DQNparams.dat')
+dqn = DQN(env, gamma=0.99, eval_eps=1.)
+dqn.load_params('run2/temp/tempDQNparams.dat')
+# evaluating the learned model
+ep_rets  = []
+for i in range(100):
+    ep_states, ep_acts, ep_rews = dqn.evaluate()
+    rets = rets_from_rews(ep_rews, 1.)
+    ep_rets.append(rets[0])
+    print(i, rets[0])
 
+print(f"Mean return on 100 episodes is {np.mean(ep_rets)}")
+plt.plot(ep_rets)
+plt.show()
 
 
