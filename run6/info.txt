@@ -1,0 +1,7 @@
+- N=1000000 (frames of training)
+- lr=1e-4 
+- n_holdout=1000
+Also maybe worth noting:
+- gamma=0.99
+- minibatch size=32
+- SEED=42

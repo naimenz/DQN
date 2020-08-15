@@ -24,11 +24,11 @@ env.seed(SEED)
 dqn = DQN(env, gamma=0.99, eval_eps=0.05)
 
 # train
-n_frames = 100000
+n_frames = 1000000
 lr = 1e-4
 n_holdout = 1000
 # save output
-directory = 'run4'
+directory = 'run6'
 ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, directory=directory)
 
 np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
