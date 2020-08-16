@@ -403,7 +403,7 @@ class DQN():
         # on its average Q on these states
         tenth_N = int(N/10)
         buf_size = tenth_N
-        eps_epoch = tenth_N
+        eps_epoch = 3*tenth_N # NOTE TEST INCREASING THE EPSILON EPOCH
         buf = Buffer(max_size=buf_size, im_dim=self.processed_dim, state_depth=self.state_depth, max_ep_len=200)
 
         # alias env
@@ -424,7 +424,7 @@ class DQN():
         eps0 = 1.
         eps1 = 0.1
         epstep = (eps1 - eps0)/eps_epoch # the quantity to add to eps every frame
-        get_eps = lambda t: eps0 + t*epstep if t < tenth_N else eps1
+        get_eps = lambda t: eps0 + t*epstep if t < eps_epoch else eps1
 
         # I'm going to try initialising the optimiser in this function,
         # as it isn't needed outside of training.
@@ -462,12 +462,17 @@ Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
 Score on holdout is {h_score}.
                 """)
 
+                # set new recent eps
+                recent_eps = len(ep_rets)
                 # NOTE LOG saving the stats so far 
                 if not directory is None:
                     np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
                     np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
                     # NOTE LOG I will overwrite parameters each time because they are big
                     self.save_params(f"{directory}/DQNparams.dat")
+                    # save parameters separately 10 times
+                    if 10*t % N == 0:
+                        self.save_params(f"{directory}/{t}DQNparams.dat")
                 tic = time.perf_counter()
 
             if done: # reset environment for a new episode
@@ -495,6 +500,8 @@ Score on holdout is {h_score}.
             _, reward, done, _ = env.step(act.item())
 
             # NOTE LOG: tracking episode return
+            # TODO: This should be ep_ret = ep_ret + self.gamma**ep_t + reward 
+            # but i'm worried that'll be slow and I'm lazy and it's the same as r=1 always
             ep_ret = self.gamma*ep_ret + reward
 
             # get the actual observation I'll be using

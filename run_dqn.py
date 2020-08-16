@@ -21,14 +21,14 @@ env = gym.make('CartPole-v0')
 env.seed(SEED)
 
 # initialise agent
-dqn = DQN(env, gamma=0.99, eval_eps=0.05)
+dqn = DQN(env, gamma=1., eval_eps=0.05)
 
 # train
 n_frames = 1000000
-lr = 1e-4
+lr = 1e-5
 n_holdout = 1000
 # save output
-directory = 'run6'
+directory = 'run7'
 ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, directory=directory)
 
 np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
