@@ -26,7 +26,7 @@ while t < 1000:
         obs, reward, done, info = env.step(a)
         if reward != 0:
             print(f"Reward: {reward}")
-    a = 3
+    a = 5
     # a = env.action_space.sample()
     frames.append(obs)
     t += 1

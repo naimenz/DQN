@@ -13,7 +13,7 @@ def rets_from_rews(ep_rews, gamma):
     # return for final timestep is just 0
     return rets
 
-directory = 'experiments/run3'
+directory = 'experiments/run4'
 
 ep_rets = np.load(f"{directory}/DQNrets.npy")
 print(ep_rets.shape)
@@ -30,31 +30,32 @@ random_undisc = []
 random_disc = []
 
 # evaluate on N episodes, and print idscounted and undiscounted return
-N = 1
+N = 5
 for i in range(N):
     ep_states, ep_acts, ep_rews = dqn.evaluate()
-    print(dqn.compute_Qs(torch.stack(ep_states)))
+    print("Qs:",dqn.compute_Qs(torch.stack(ep_states)))
+    print("ACTS:",ep_acts)
     undisc_rets.append(rets_from_rews(ep_rews, 1.)[0])
     disc_rets.append(rets_from_rews(ep_rews, gamma)[0])
-    ep_states, ep_acts, ep_rews = random.evaluate()
-    random_undisc.append(rets_from_rews(ep_rews, 1.)[0])
-    random_disc.append(rets_from_rews(ep_rews, gamma)[0])
+    # ep_states, ep_acts, ep_rews = random.evaluate()
+    # random_undisc.append(rets_from_rews(ep_rews, 1.)[0])
+    # random_disc.append(rets_from_rews(ep_rews, gamma)[0])
     print("=========================")
     print(f"Episode {i}, our agent got undiscounted:{undisc_rets[-1]}, discounted:{disc_rets[-1]}")
-    print(f"Episode {i}, random got undiscounted:{random_undisc[-1]}, discounted:{random_disc[-1]}")
+    # print(f"Episode {i}, random got undiscounted:{random_undisc[-1]}, discounted:{random_disc[-1]}")
 
-# np.save('temp_disc.npy', disc_rets)
-# np.save('temp_undisc.npy', undisc_rets)
+np.save('temp_disc.npy', disc_rets)
+np.save('temp_undisc.npy', undisc_rets)
 # np.save('random_disc.npy', random_disc)
 # np.save('random_undisc.npy', random_undisc)
 
 
 disc_rets = np.load('temp_disc.npy')
 undisc_rets = np.load('temp_undisc.npy')
-random_disc = np.load('random_disc.npy')
-random_undisc = np.load('random_undisc.npy')
+# random_disc = np.load('random_disc.npy')
+# random_undisc = np.load('random_undisc.npy')
 print(f" our agent got undiscounted:{np.mean(undisc_rets)}, discounted:{np.mean(disc_rets)}")
-print(f" random got undiscounted:{np.mean(random_undisc)}, discounted:{np.mean(random_disc)}")
+# print(f" random got undiscounted:{np.mean(random_undisc)}, discounted:{np.mean(random_disc)}")
 
 # plt.subplot(121)
 # plt.plot(undisc_rets, label="Learned")

@@ -197,6 +197,8 @@ class DQN():
         self.n_acts = 2
         # self.n_acts = env.action_space.n # get the number of discrete actions possible
 
+        # NOTE TEST: setting a maximum episode length of 2000 (will print episode lengths as I go though)
+        self.max_ep_len = 2000
         # function to convert to greyscale (takes np frames)
         self.to_greyscale = lambda rgb : np.dot(rgb[... , :3] , [0.299 , 0.587, 0.114]) 
 
@@ -286,7 +288,7 @@ class DQN():
         while not done:
             act = self.get_act(s, self.eval_eps) # returns a 1-element tensor
             # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 1
+            av = 2 if act == 0 else 5
             obs, reward, done, info = env.step(av) 
 
             # log state, act, reward
@@ -323,7 +325,7 @@ class DQN():
             # generate a random action given the current state
             act = self.get_act(s, 1.)
             # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 1
+            av = 2 if act == 0 else 5
             # act in the environment
             obs, reward, done, _ = env.step(av)
 
@@ -385,7 +387,8 @@ class DQN():
         tenth_N = int(N/10)
         buf_size = tenth_N
         eps_epoch = tenth_N
-        buf = Buffer(max_size=buf_size, im_dim=self.processed_dim, state_depth=self.state_depth, max_ep_len=200)
+        # NOTE: episodes can go a lot longer in Pong
+        buf = Buffer(max_size=buf_size, im_dim=self.processed_dim, state_depth=self.state_depth, max_ep_len=self.max_ep_len)
 
         # alias env
         env = self.env
@@ -435,7 +438,6 @@ class DQN():
                 liltic = time.perf_counter()
                 h_score = self.evaluate_holdout(holdout)
                 liltoc = time.perf_counter()
-                print(f"computing Qs on {n_holdout} holdout states took {liltoc - liltic:0.4f} seconds")
                 holdout_scores.append(h_score)
                 toc = time.perf_counter()
                 print(
@@ -444,6 +446,7 @@ Last {N/n_evals} frames took {toc - tic:0.4f} seconds.
 Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
 Score on holdout is {h_score}.
                 """)
+                print(f"computing Qs on {n_holdout} holdout states took {liltoc - liltic:0.4f} seconds")
 
                 # set new recent eps
                 recent_eps = len(ep_rets)
@@ -477,13 +480,10 @@ Score on holdout is {h_score}.
             eps = get_eps(t)
             act = self.get_act(s, eps)
             # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 1
+            av = 2 if act == 0 else 5
 
             # act in the environment
             obsp, reward, done, _ = env.step(av)
-            # NOTE TEST: printing non-zero rewards to figure out if its learning
-            if reward != 0:
-                print(f"Non-zero reward ({reward}) at frame {t}")
 
             # NOTE LOG: tracking episode return
             ep_ret = ep_ret + (self.gamma**ep_t) * reward
