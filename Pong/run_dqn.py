@@ -27,10 +27,10 @@ dqn = DQN(env, gamma=0.99, eval_eps=0.05)
 
 # train
 n_frames = 100000
-lr = 1e-5
+lr = 1e-6
 n_holdout = 1000
 # save output
-directory = 'experiments/run4'
+directory = 'experiments/run5'
 # make directory if it doesn't exist (if it does exist, throw an error so I have to switch lines if I wnat to overwrite
 # Path(directory).mkdir(parents=True, exist_ok=False)
 Path(directory).mkdir(parents=True, exist_ok=True)
