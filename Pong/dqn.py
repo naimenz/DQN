@@ -1,5 +1,5 @@
 """
-This is my attempt to implement DQN on the cartpole-v0 environment from OpenAI gym.
+This is my attempt to implement DQN on the PONG environment from OpenAI gym.
 
 To force myself to get better at version control, I will develop it all in this one file instead
 of making backups each time I change something.
@@ -23,25 +23,12 @@ torch.manual_seed(SEED)
 # using the new recommended numpy random number routines
 rng = np.random.default_rng(SEED)
 
-# test TO AVOID DRAWING, code from https://stackoverflow.com/a/61694644
-# It works but it's still slow as all hell
-def disable_view_window():
-    from gym.envs.classic_control import rendering
-    org_constructor = rendering.Viewer.__init__
-
-    def constructor(self, *args, **kwargs):
-        org_constructor(self, *args, **kwargs)
-        self.window.set_visible(visible=False)
-
-    rendering.Viewer.__init__ = constructor
-disable_view_window()
-
 # To start with, follow a very similar architecture to what they did for Atari games
 # NOTE I'm going to extend the Module class here: I've never really extended classes before so this is
 # a possible failure point
 class QNet(nn.Module):
     """
-    This class defines the Deep Q-Network that will be used to predict Q-values of Cartpole states.
+    This class defines the Deep Q-Network that will be used to predict Q-values of PONG states.
 
     I have defined this OUTSIDE the main class. I'll hardcode the parameters for now.
     TODO: Don't hardcode the parameters and make it good.
@@ -50,13 +37,16 @@ class QNet(nn.Module):
         super(QNet, self).__init__()
         # defining the necessary layers to be used in forward()
         # note we have four frames in an input state
-        # all other parameters are basically arbitrary, but following similarly to the paper's Atari architecture
-        self.conv1 = nn.Conv2d(in_channels=4, out_channels=16, kernel_size=(8,8), stride=4)
-        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(4,4), stride=(1,2))
+        # parameters are (ALMOST) the same as used in the original DQN paper
+        # NOTE Because I have 80*80 images instead of 84 by 84, I will pad by 2 to
+        # get the same shape moving forward
+        # NOTE TEST changing padding to see if it breaks
+        self.conv1 = nn.Conv2d(in_channels=4, out_channels=16, kernel_size=(8,8), stride=4, padding=2)
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(4,4), stride=2)
         # NOTE TODO: figure out how exactly it converts from input to output channels; it's not multiplicative
-        self.linear1 = nn.Linear(2112, 256)
+        self.linear1 = nn.Linear(2592, 256)
         # NOTE: for now just hardcoding number of actions TODO: pass this in
-        self.linear2 = nn.Linear(256, 2)
+        self.linear2 = nn.Linear(256, 6)
 
     # define how the net handles input
     def forward(self, x):
@@ -193,8 +183,8 @@ class Buffer():
 
 class DQN():
     """
-    DQN class specifically for solving Cartpole. 
-    Might work on other simple continuous obs, discrete act environments too if it works on Cartpole.
+    DQN class specifically for solving Pong
+    Might work on other Atari continuous obs, discrete act environments too if it works on Pong.
     """
     # we initialise with an environment for now, might need to add architecture once
     # I get the NN working.
@@ -204,13 +194,11 @@ class DQN():
         self.gamma = gamma # discount rate (I think they used 0.99)
         self.n_acts = env.action_space.n # get the number of discrete actions possible
 
-        # convenience function for getting a frame from the env
-        self.get_frame = lambda env: torch.as_tensor(env.render(mode='rgb_array').copy(), dtype=torch.float)
+        # function to convert to greyscale (takes np frames)
+        self.to_greyscale = lambda rgb : np.dot(rgb[... , :3] , [0.299 , 0.587, 0.114]) 
 
         # quickly get the dimensions of the images we will be using
-        env.reset()
-        x = self.get_frame(env)
-        env.close()
+        x = env.reset()
         self.im_dim = x.shape # this is before processing
         self.processed_dim = self.preprocess_frame(x).shape
         self.state_depth = 4 # number of frames in a state, hardcoded for now
@@ -226,9 +214,6 @@ class DQN():
          - Make this more useful - i.e. calculate the values to pass in to the network
         """
         # Our images are currently 40 x 100 (height, width)
-        h = 40 # height
-        w = 100 # width
-        n = 4 # number of frames in a state
         return QNet()
 
     # takes a batch of states of shape (batch,)+ self.state_dim as input and returns Q values as outputs
@@ -253,18 +238,15 @@ class DQN():
     # Currently takes 600x400 images and gives 40x100
     # NOTE I'm now inverting the image so it's mostly 0 rather than mostly 1
     def preprocess_frame(self, frame):
-        # converting to greyscale(?) by just averaging pixel colors in the last dimension(is this right?)
-        # print(f"Frame information: type {type(frame)}, shape {frame.shape}, dtype {frame.dtype}")
-        grey_frame = torch.mean(frame, dim=-1)
+        # greyscale is actually best done with brightness 
+        frame = self.to_greyscale(frame)
         # Now I want to downsample the image in both dimensions
-        downsampled_frame = grey_frame[::4, ::6]
+        frame = frame[::2, ::2]
         # Trying a crop because a lot of the vertical space is unused
-        cropped_frame = downsampled_frame[40:80, :]
+        frame = frame[17:97, :]
         # I'm going to rescale so that values are in [0,1]
-        rescaled_frame = cropped_frame / 255
-        # NOTE inverting so that image is mostly 0
-        invert_frame = 1 - rescaled_frame
-        return invert_frame
+        frame = frame / 255
+        return torch.as_tensor(frame, dtype=torch.float)
 
     # encode the observation into a state based on the previous state and current obs
     def get_phi(self, s, obs):
@@ -293,24 +275,20 @@ class DQN():
 
         # reset environment
         done = False
-        _ = env.reset()
-        # get frame of the animation
-        obs = self.get_frame(env)
+        obs = env.reset()
         # because we only have one frame so far, just make the initial state 4 copies of it
         s = self.initial_phi(obs)
 
         # loop over steps in the episode
         while not done:
             act = self.get_act(s, self.eval_eps) # returns a 1-element tensor
-            _, reward, done, info = env.step(act.item()) # throw away their obs
+            obs, reward, done, info = env.step(act.item()) 
 
             # log state, act, reward
             ep_states.append(s)
             ep_acts.append(act.item())
             ep_rews.append(reward)
 
-            # get frame of the animation
-            obs = self.get_frame(env)
             # construct new state from new obs
             s = self.get_phi(s, obs)
 
@@ -331,8 +309,7 @@ class DQN():
         while t < N:
             if done: # reset environment for a new episode
                 done = False
-                _ = env.reset()
-                obs = self.get_frame(env)
+                obs = env.reset()
                 # because we only have one frame so far, just make the initial state 4 copies of it
                 s = self.initial_phi(obs)
 
@@ -341,10 +318,7 @@ class DQN():
             # generate a random action given the current state
             act = self.get_act(s, 1.)
             # act in the environment
-            _, reward, done, _ = env.step(act.item())
-
-            # get the actual observation I'll be using
-            obs = self.get_frame(env) 
+            obs, reward, done, _ = env.step(act.item())
 
             # get the next state
             s = self.get_phi(s, obs)
@@ -403,7 +377,7 @@ class DQN():
         # on its average Q on these states
         tenth_N = int(N/10)
         buf_size = tenth_N
-        eps_epoch = 3*tenth_N # NOTE TEST INCREASING THE EPSILON EPOCH
+        eps_epoch = tenth_N
         buf = Buffer(max_size=buf_size, im_dim=self.processed_dim, state_depth=self.state_depth, max_ep_len=200)
 
         # alias env
@@ -430,9 +404,8 @@ class DQN():
         # as it isn't needed outside of training.
         # I'm using RMSProp because they used RMSProp in the paper and i'm lazy
         # NOTE TODO: I have no idea what learning rate to use.
-        # I really don't want to spend too long messing with hyperparameters but I
-        # may have to. I'll start with 1e-2 because it seems like a sensible default
-        optim = torch.optim.RMSprop(self.qnet.parameters(), lr=lr)
+        # NOTE TEST: Using Adam instead just to see what happens
+        optim = torch.optim.Adam(self.qnet.parameters(), lr=lr)
 
         # NOTE LOG: I'm going to track return per episode for testing
         ep_ret = 0
@@ -452,7 +425,10 @@ class DQN():
         while t < N:
             # NOTE LOG: evaluating 50 times throughout training
             if n_evals*t % N == 0 and t > 0:
+                liltic = time.perf_counter()
                 h_score = self.evaluate_holdout(holdout)
+                liltoc = time.perf_counter()
+                print(f"computing Qs on {n_holdout} holdout states took {liltoc - liltic:0.4f} seconds")
                 holdout_scores.append(h_score)
                 toc = time.perf_counter()
                 print(
@@ -485,10 +461,8 @@ Score on holdout is {h_score}.
                 ep_t = 0
 
                 done = False
-                # NOTE TEST: new start flag to say whether this is the first state of an episode
                 start = True
-                _ = env.reset()
-                obs = self.get_frame(env)
+                obs = env.reset()
                 # because we only have one frame so far, just make the initial state 4 copies of it
                 s = self.initial_phi(obs)
 
@@ -497,15 +471,13 @@ Score on holdout is {h_score}.
             act = self.get_act(s, eps)
 
             # act in the environment
-            _, reward, done, _ = env.step(act.item())
+            obsp, reward, done, _ = env.step(act.item())
+            # NOTE TEST: printing non-zero rewards to figure out if its learning
+            if reward != 0:
+                print(f"Non-zero reward ({reward}) at frame {t}")
 
             # NOTE LOG: tracking episode return
-            # TODO: This should be ep_ret = ep_ret + self.gamma**ep_t + reward 
-            # but i'm worried that'll be slow and I'm lazy and it's the same as r=1 always
-            ep_ret = self.gamma*ep_ret + reward
-
-            # get the actual observation I'll be using
-            obsp = self.get_frame(env) 
+            ep_ret = ep_ret + (self.gamma**ep_t) * reward
 
             # get the next state
             sp = self.get_phi(s, obsp)
@@ -525,6 +497,7 @@ Score on holdout is {h_score}.
             t += 1
             ep_t += 1 # updating the episode time as well
             s = sp
+
         bigtoc = time.perf_counter()
         print(f"ALL TRAINING took {bigtoc - bigtic:0.4f} seconds")
         # NOTE LOG: tracking episode returns

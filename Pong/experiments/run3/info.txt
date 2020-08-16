@@ -1,0 +1,9 @@
+# Larger test, Q values diverged, ended at ~100k
+PARAMETERS:
+n_frames=100000
+n_holdout=1000
+lr=1e-3
+gamma=0.99
+eps_epoch=10000
+buf_size=10000
+
