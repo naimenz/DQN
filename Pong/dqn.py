@@ -33,7 +33,7 @@ class QNet(nn.Module):
     I have defined this OUTSIDE the main class. I'll hardcode the parameters for now.
     TODO: Don't hardcode the parameters and make it good.
     """
-    def __init__(self):
+    def __init__(self, n_outputs):
         super(QNet, self).__init__()
         # defining the necessary layers to be used in forward()
         # note we have four frames in an input state
@@ -46,7 +46,8 @@ class QNet(nn.Module):
         # NOTE TODO: figure out how exactly it converts from input to output channels; it's not multiplicative
         self.linear1 = nn.Linear(2592, 256)
         # NOTE: for now just hardcoding number of actions TODO: pass this in
-        self.linear2 = nn.Linear(256, 6)
+        # NOTE NOTE: Pong has SIX legal actions but only TWO actually do anything useful
+        self.linear2 = nn.Linear(256, n_outputs)
 
     # define how the net handles input
     def forward(self, x):
@@ -192,7 +193,9 @@ class DQN():
         self.eval_eps = eval_eps # epsilon to be used at evaluation time (typically lower than training eps)
         self.env = env
         self.gamma = gamma # discount rate (I think they used 0.99)
-        self.n_acts = env.action_space.n # get the number of discrete actions possible
+        # NOTE TEST: replacing the in-built actions with just two that are actually useful in Pong
+        self.n_acts = 2
+        # self.n_acts = env.action_space.n # get the number of discrete actions possible
 
         # function to convert to greyscale (takes np frames)
         self.to_greyscale = lambda rgb : np.dot(rgb[... , :3] , [0.299 , 0.587, 0.114]) 
@@ -205,16 +208,16 @@ class DQN():
         self.state_dim = (self.state_depth,) + self.processed_dim # we will use 4 most recent frames as the states
 
         # initialise the network TODO pass in params
-        self.qnet = self.initialise_network()
+        # now passing in n_acts at least
+        self.qnet = self.initialise_network(n_outputs=self.n_acts)
     
     # Function to initialise the convolutional NN used to predict Q values
-    def initialise_network(self):
+    def initialise_network(self, n_outputs):
         """
          TODO:
          - Make this more useful - i.e. calculate the values to pass in to the network
         """
-        # Our images are currently 40 x 100 (height, width)
-        return QNet()
+        return QNet(n_outputs=n_outputs)
 
     # takes a batch of states of shape (batch,)+ self.state_dim as input and returns Q values as outputs
     # simple wrapper really
@@ -282,7 +285,9 @@ class DQN():
         # loop over steps in the episode
         while not done:
             act = self.get_act(s, self.eval_eps) # returns a 1-element tensor
-            obs, reward, done, info = env.step(act.item()) 
+            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
+            av = 2 if act == 0 else 1
+            obs, reward, done, info = env.step(av) 
 
             # log state, act, reward
             ep_states.append(s)
@@ -317,8 +322,10 @@ class DQN():
             states[t] = s
             # generate a random action given the current state
             act = self.get_act(s, 1.)
+            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
+            av = 2 if act == 0 else 1
             # act in the environment
-            obs, reward, done, _ = env.step(act.item())
+            obs, reward, done, _ = env.step(av)
 
             # get the next state
             s = self.get_phi(s, obs)
@@ -469,9 +476,11 @@ Score on holdout is {h_score}.
             # generate an action given the current state
             eps = get_eps(t)
             act = self.get_act(s, eps)
+            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
+            av = 2 if act == 0 else 1
 
             # act in the environment
-            obsp, reward, done, _ = env.step(act.item())
+            obsp, reward, done, _ = env.step(av)
             # NOTE TEST: printing non-zero rewards to figure out if its learning
             if reward != 0:
                 print(f"Non-zero reward ({reward}) at frame {t}")
