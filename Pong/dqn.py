@@ -16,6 +16,7 @@ import torch
 import torch.nn as nn
 import gym
 import matplotlib.pyplot as plt
+import time
 
 # set a seed for reproducibility during implementation
 SEED = 42
@@ -388,27 +389,160 @@ class DQN():
     # been initialised in the same way
     def train_from_state(self, state):
         # unpack all the things 
+        # fixed throughout the run
         directory = state['directory']
+        env = state['env']
         n_evals = state['n_evals']
         N = state['total_frames']
-        t = state['current_frame']
-        ep_t = state['episode_time']
-        current_state = state['current_state']
-        done = state['done']
-        optim = state['optim']
-        lr = state['lr']
-        model_params = state['model_params']
         eps_epoch = state['eps_epoch']
         ep0 = state['eps0']
         ep1 = state['eps1']
-        buf = state['buffer']
         holdout = state['holdout']
+        lr = state['lr']
+        # variable
+        t = state['current_frame']
+        ep_t = state['episode_time']
+        s = state['current_state']
+        done = state['done']
+        optim = state['optim']
+        model_params = state['model_params']
+        buf = state['buffer']
         total_time_elapsed = state['total_time_elapsed']
         # batch statistics
         batch_time_elapsed = state['batch_time_elapsed']
-        holdout_scores['holdout_scores']
+        holdout_scores = state['holdout_scores']
         recent_ep = state['recent_ep']
         ep_rets = state['ep_rets']
+
+        # printing important variables at the start
+        print(f"""\
+============================================================================                
+Resuming training.
+Completed {t}/{N} frames (working on batch {1+(n_evals * t) // N}/{n_evals}).
+Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
+
+Current time elapsed: {total_time_elapsed}
+Current batch ran for: {batch_time_elapsed}
+============================================================================                
+""")
+
+        # SETTING UP NEW TIMERS
+        tic = time.perf_counter() # batch timer
+        bigtic = time.perf_counter()# total timer
+
+        # MAIN TRAINING LOOP IN A TRY EXCEPT FOR CANCELLING
+        while t < N:
+            try:
+            # while we haven't seen enough frames
+                # NOTE LOG: evaluating 50 times throughout training
+                if n_evals*t % N == 0 and t > 0:
+                    liltic = time.perf_counter()
+                    h_score = self.evaluate_holdout(holdout)
+                    liltoc = time.perf_counter()
+                    holdout_scores.append(h_score)
+                    toc = time.perf_counter()
+                    print(
+                    f"""============== FRAME {t}/{N} (batch {(n_evals * t) // N)}/{n_evals}) ============== 
+Last {N/n_evals} frames took {batch_time_elapsed + toc - tic:0.4f} seconds.
+Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
+Score on holdout is {h_score}.
+                    """)
+                    batch_time_elapsed = 0 # resetting time elapsed
+
+                    # set new recent eps threshold
+                    recent_eps = len(ep_rets)
+                    # NOTE LOG saving the stats so far 
+                    if not directory is None:
+                        np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
+                        np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
+                        # NOTE LOG I will overwrite parameters each time because they are big
+                        self.save_params(f"{directory}/DQNparams.dat")
+                        # save parameters separately 10 times
+                        if 10*t % N == 0:
+                            self.save_params(f"{directory}/{t}DQNparams.dat")
+                    tic = time.perf_counter()
+
+                if done: # reset environment for a new episode
+                    # NOTE LOG: tracking episode return
+                    if t > 0: # if this isn't the first episode
+                        ep_rets.append(ep_ret)
+                        # NOTE LOG: printing the length of the previous episode
+                        print(f"Episode {len(ep_rets)} had length {ep_t}")
+                    ep_ret = 0
+
+                    # NOTE tracking episode time 
+                    ep_t = 0
+
+                    done = False
+                    obs = env.reset()
+                    # because we only have one frame so far, just make the initial state 4 copies of it
+                    s = self.initial_phi(obs)
+
+                # generate an action given the current state
+                eps = get_eps(t)
+                act = self.get_act(s, eps)
+                # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
+                av = self.action_set[act]
+
+                # act in the environment
+                obsp, reward, done, _ = env.step(av)
+
+                # NOTE LOG: tracking episode return
+                ep_ret = ep_ret + (self.gamma**ep_t) * reward
+
+                # get the next state
+                sp = self.get_phi(s, obsp)
+
+                # add all this to the experience buffer
+                # PLUS the done flag so I know if sp is terminal
+                # AND the various times
+                buf.add((s, act, reward, sp, done, ep_t, t))
+
+                # NOW WE SAMPLE A MINIBATCH and update on that
+                minibatch = buf.sample(batch_size=32)
+                self.update_minibatch(minibatch, optim)
+
+                # prepare for next frame
+                t += 1
+                ep_t += 1 # updating the episode time as well
+                s = sp
+
+            except (KeyboardInterrupt, SystemExit):
+                print(f"\nSaving into {directory}/saved_state.tar")
+                # ENDING TIMERS
+                toc = time.perf_counter() # batch timer
+                bigtoc = time.perf_counter() # total timer
+
+                # WRITING VARIABLE BITS TO STATE DICT
+                state['current_time'] = t
+                state['episode_time'] = ep_t
+                state['current_state'] = current_state
+                state['done'] = done
+                state['optim'] = optim
+                state['model_params'] = model_params
+                state['buffer'] = buf
+                state['total_time_elapsed'] = total_time_elapsed + (bigtoc - bigtic)
+                # batch statistics
+                state['batch_time_elapsed'] = toc - tic
+                state['holdout_scores'] = holdout_scores
+                state['recent_ep'] = recent_ep
+                state['ep_rets'] = ep_rets
+
+                # WRITING STATE DICT TO FILE         
+                torch.save(state, f"{directory}/saved_state.tar")
+                # WRITING PAUSE MESSAGE TO info.txt
+                pause_message = """\
+Training paused at frame {t}/{N}.
+Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
+"""
+                with open(f"{directory}/info.txt", 'w') as f: 
+                   f.write(pause_message)
+
+        # AFTER WHILE LOOP AND TRY EXCEPT
+        bigtoc = time.perf_counter()
+        print(f"ALL TRAINING took {bigtoc - bigtic:0.4f} seconds")
+        # NOTE LOG: tracking episode returns
+        return ep_rets, holdout_scores
 
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
@@ -431,7 +565,6 @@ class DQN():
         print(f"BEGINNING TRAINING with N={N}, lr={lr}, n_holdout={n_holdout}")
         print(f"buffer size={buf_size}, epsilon epoch={eps_epoch}")
         print("=============================")
-        import time
         tic = time.perf_counter()
         holdout = self.generate_holdout(N=n_holdout)
         toc = time.perf_counter()
@@ -459,7 +592,6 @@ class DQN():
         done = True # indicate that we should restart episode immediately
         
         # NOTE LOG: timing
-        import time
         bigtic = time.perf_counter()
         tic = time.perf_counter()
         

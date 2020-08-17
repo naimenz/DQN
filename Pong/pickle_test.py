@@ -5,6 +5,8 @@ from dqn import Buffer
 import pickle
 import torch
 import os
+import gym
+import numpy as np
 
 class Foo():
     def __init__(self, data):
@@ -31,9 +33,11 @@ max_ep_len=2000
 #     a.add((s,act,r,sp,done,ep_t,fcount))
 #     ep_t += 1
 #     fcount += 1
-a = torch.optim.Adam([torch.tensor([1.])], lr=1e-6)
-print(a.param_groups[0]['lr'])
-stuff = {'buffer': a}
+# a = torch.optim.Adam([torch.tensor([1.])], lr=1e-6)
+# print(a.param_groups[0]['lr'])
+env = gym.make('Pong-v0')
+state = env.env.ale.getScreenRGB() 
+stuff = {'env': env}
 # with open('dumpfile.dat', 'wb') as f:
 #     pickle.dump(stuff, f)
 
@@ -42,6 +46,8 @@ stuff = {'buffer': a}
 torch.save(stuff, "torchfile.dat")
 # size = os.path.getsize('dumpfile.dat')
 b = torch.load('torchfile.dat')
+state2 = b['env'].env.ale.getScreenRGB() 
+print(np.allclose(state, state2))
 torchsize = os.path.getsize('torchfile.dat')
 
 def convert_bytes(num):
@@ -54,9 +60,9 @@ def convert_bytes(num):
         num /= 1024.0
 
 # print("pickle",convert_bytes(size))
-print("torhc",convert_bytes(torchsize))
-print(b['buffer'])
-print(b['buffer'].sample(1))
+# print("torhc",convert_bytes(torchsize))
+# print(b['buffer'])
+# print(b['buffer'].sample(1))
 
 # TESTING CATCHING CTRL+C
 import signal
