@@ -465,6 +465,8 @@ Score on holdout is {h_score}.
                 # NOTE LOG: tracking episode return
                 if t > 0: # if this isn't the first episode
                     ep_rets.append(ep_ret)
+                    # NOTE LOG: printing the length of the previous episode
+                    print(f"Episode {len(ep_rets)} had length {ep_t}")
                 ep_ret = 0
 
                 # NOTE tracking episode time 
