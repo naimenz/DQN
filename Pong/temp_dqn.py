@@ -351,7 +351,6 @@ class DQN():
         # don't need gradients except for Q(s,a)
         all_q = self.compute_Qs(s)
         q = all_q[range(len(s)), a]
-        print(q.grad_fn)
         with torch.no_grad():
             # get the 'values' part of the max function and drop the 'indices'
             qsp = torch.max(self.compute_Qs(sp), dim=1)[0]
@@ -477,8 +476,8 @@ Score on holdout is {h_score}.
             # generate an action given the current state
             eps = get_eps(t)
             act = self.get_act(s, eps)
-            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 5
+            # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
+            av = self.action_set[act]
 
             # act in the environment
             obsp, reward, done, _ = env.step(av)
@@ -515,39 +514,45 @@ Score on holdout is {h_score}.
             # NOW WE SAMPLE A MINIBATCH and update on that
             minibatch = buf.sample(batch_size=32)
             # wait until first frames are mostly out of buffer
-            if t > 10:
+            if t > 50:
                 ss = minibatch[0]
                 sps = minibatch[3]
-                for i in range(buf_size):
+                for i in range(32):
+                    print("===================")
                     print(f"DRAWING {i} S AND SP OF MINIBATCH")
+                    action_i = minibatch[1][i]
+                    print(f"Action: {action_i}")
+                    print(f"Reward: {minibatch[2][i]}")
+                    print(f"Done: {minibatch[4][i]}")
 
-                    plt.subplot(221)
-                    plt.imshow(ss[i][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                    plt.colorbar()
-                    plt.title("s frame 0")
-                    plt.subplot(222)
-                    plt.imshow(ss[i][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                    plt.title("s frame 1")
-                    plt.subplot(223)
-                    plt.imshow(ss[i][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                    plt.title("s frame 2")
-                    plt.subplot(224)
-                    plt.imshow(ss[i][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                    plt.title("s frame 3")
-                    plt.show()
-                    plt.subplot(221)
-                    plt.imshow(sps[i][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                    plt.title("sp frame 0")
-                    plt.subplot(222)
-                    plt.imshow(sps[i][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                    plt.title("sp frame 1")
-                    plt.subplot(223)
-                    plt.imshow(sps[i][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                    plt.title("s frame 2")
-                    plt.subplot(224)
-                    plt.imshow(sps[i][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                    plt.title("sp frame 3")
-                    plt.show()
+                    if action_i == 1:
+                        plt.subplot(221)
+                        plt.imshow(ss[i][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                        plt.colorbar()
+                        plt.title("s frame 0")
+                        plt.subplot(222)
+                        plt.imshow(ss[i][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                        plt.title("s frame 1")
+                        plt.subplot(223)
+                        plt.imshow(ss[i][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                        plt.title("s frame 2")
+                        plt.subplot(224)
+                        plt.imshow(ss[i][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                        plt.title("s frame 3")
+                        plt.show()
+                        plt.subplot(221)
+                        plt.imshow(sps[i][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                        plt.title("sp frame 0")
+                        plt.subplot(222)
+                        plt.imshow(sps[i][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                        plt.title("sp frame 1")
+                        plt.subplot(223)
+                        plt.imshow(sps[i][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                        plt.title("s frame 2")
+                        plt.subplot(224)
+                        plt.imshow(sps[i][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                        plt.title("sp frame 3")
+                        plt.show()
             self.update_minibatch(minibatch, optim)
 
             # prepare for next frame
