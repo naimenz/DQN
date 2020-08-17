@@ -1,14 +1,5 @@
 """
-This is my attempt to implement DQN on the PONG environment from OpenAI gym.
-
-To force myself to get better at version control, I will develop it all in this one file instead
-of making backups each time I change something.
-
-I have a trello board https://trello.com/b/iQUDEFxL/dqn
-and a github repo https://github.com/naimenz/DQN
-
-Building on the general structure I used for Sarsa/REINFORCE-type algorithms, I'll write a class to hold
-all the important bits and share parameters and stuff.
+TEMPORARY FILE FOR TESTING THE BUFFER, DO NOT MAKE PROPER CHANGES HERE
 """
 
 import numpy as np # using numpy as sparingly as possible, mainly for random numbers but also some other things
@@ -313,6 +304,8 @@ class DQN():
         
         # while we haven't seen enough frames
         while t < N:
+            import time
+            time.sleep(0.1)
             if done: # reset environment for a new episode
                 done = False
                 obs = env.reset()
@@ -432,6 +425,8 @@ class DQN():
         
         # while we haven't seen enough frames
         while t < N:
+            env.render()
+            time.sleep(0.1)
             # NOTE LOG: evaluating 50 times throughout training
             if n_evals*t % N == 0 and t > 0:
                 liltic = time.perf_counter()
@@ -491,6 +486,22 @@ Score on holdout is {h_score}.
 
             # get the next state
             sp = self.get_phi(s, obsp)
+            # print("DRAWING NEXT STATE")
+            # print(sp)
+            # plt.subplot(221)
+            # plt.imshow(sp[0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+            # plt.colorbar()
+            # plt.title("s frame 0")
+            # plt.subplot(222)
+            # plt.imshow(sp[1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+            # plt.title("s frame 1")
+            # plt.subplot(223)
+            # plt.imshow(sp[2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+            # plt.title("s frame 2")
+            # plt.subplot(224)
+            # plt.imshow(sp[3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+            # plt.title("s frame 3")
+            # plt.show()
 
             # add all this to the experience buffer
             # PLUS the done flag so I know if sp is terminal
@@ -501,6 +512,39 @@ Score on holdout is {h_score}.
 
             # NOW WE SAMPLE A MINIBATCH and update on that
             minibatch = buf.sample(batch_size=32)
+            # wait until first frames are mostly out of buffer
+            if t > 100:
+                ss = minibatch[0]
+                sps = minibatch[3]
+                print("DRAWING FIRST S AND SP OF MINIBATCH")
+
+                plt.subplot(221)
+                plt.imshow(ss[0][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                plt.colorbar()
+                plt.title("s frame 0")
+                plt.subplot(222)
+                plt.imshow(ss[0][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                plt.title("s frame 1")
+                plt.subplot(223)
+                plt.imshow(ss[0][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                plt.title("s frame 2")
+                plt.subplot(224)
+                plt.imshow(ss[0][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                plt.title("s frame 3")
+                plt.show()
+                plt.subplot(221)
+                plt.imshow(sps[0][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                plt.title("sp frame 0")
+                plt.subplot(222)
+                plt.imshow(sps[0][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                plt.title("sp frame 1")
+                plt.subplot(223)
+                plt.imshow(sps[0][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                plt.title("s frame 2")
+                plt.subplot(224)
+                plt.imshow(sps[0][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                plt.title("sp frame 3")
+                plt.show()
             self.update_minibatch(minibatch, optim)
 
             # prepare for next frame

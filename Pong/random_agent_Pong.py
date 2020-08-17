@@ -16,18 +16,18 @@ frames = []
 import time
 tic = time.perf_counter()
 t = 0
-while t < 10:
+while t < 1000:
     env.render()
-    time.sleep(.1)
+    # time.sleep(.1)
     if done:
         obs = env.reset()
         done = False
     else:
         obs, reward, done, info = env.step(a)
         if reward != 0:
-            print(f"Reward: {reward}")
-    a = 5
-    # a = env.action_space.sample()
+            print(f"Reward: {reward} at frame {t}")
+    # a = 
+    a = env.action_space.sample()
     frames.append(obs)
     t += 1
 

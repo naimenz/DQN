@@ -44,8 +44,8 @@ for i in range(N):
     print(f"Episode {i}, our agent got undiscounted:{undisc_rets[-1]}, discounted:{disc_rets[-1]}")
     # print(f"Episode {i}, random got undiscounted:{random_undisc[-1]}, discounted:{random_disc[-1]}")
 
-np.save('temp_disc.npy', disc_rets)
-np.save('temp_undisc.npy', undisc_rets)
+# np.save('temp_disc.npy', disc_rets)
+# np.save('temp_undisc.npy', undisc_rets)
 # np.save('random_disc.npy', random_disc)
 # np.save('random_undisc.npy', random_undisc)
 
