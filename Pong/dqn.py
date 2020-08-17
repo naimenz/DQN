@@ -40,12 +40,10 @@ class QNet(nn.Module):
         # parameters are (ALMOST) the same as used in the original DQN paper
         # NOTE Because I have 80*80 images instead of 84 by 84, I will pad by 2 to
         # get the same shape moving forward
-        # NOTE TEST changing padding to see if it breaks
         self.conv1 = nn.Conv2d(in_channels=4, out_channels=16, kernel_size=(8,8), stride=4, padding=2)
         self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(4,4), stride=2)
         # NOTE TODO: figure out how exactly it converts from input to output channels; it's not multiplicative
         self.linear1 = nn.Linear(2592, 256)
-        # NOTE: for now just hardcoding number of actions TODO: pass this in
         # NOTE NOTE: Pong has SIX legal actions but only TWO actually do anything useful
         self.linear2 = nn.Linear(256, n_outputs)
 
@@ -239,17 +237,18 @@ class DQN():
         return act
 
     # preprocess a frame for use in constructing states
-    # TODO tidy up this processing, but it seems to work alright
-    # Currently takes 600x400 images and gives 40x100
-    # NOTE I'm now inverting the image so it's mostly 0 rather than mostly 1
+    # NOTE TEST: shifting color values so that the background is 0
     def preprocess_frame(self, frame):
         # greyscale is actually best done with brightness 
         frame = self.to_greyscale(frame)
         # Now I want to downsample the image in both dimensions
+        # NOTE: maybe this isn't the best way to downsample
         frame = frame[::2, ::2]
         # Trying a crop because a lot of the vertical space is unused
         frame = frame[17:97, :]
-        # I'm going to rescale so that values are in [0,1]
+        # NOTE TEST: subtracting background grey colour (87.258)
+        frame = frame - 87.258
+        # I'm going to rescale so that min and max values are at most 1 apart
         frame = frame / 255
         return torch.as_tensor(frame, dtype=torch.float)
 
@@ -413,7 +412,6 @@ class DQN():
         # I'm going to try initialising the optimiser in this function,
         # as it isn't needed outside of training.
         # I'm using RMSProp because they used RMSProp in the paper and i'm lazy
-        # NOTE TODO: I have no idea what learning rate to use.
         # NOTE TEST: Using Adam instead just to see what happens
         optim = torch.optim.Adam(self.qnet.parameters(), lr=lr)
 
