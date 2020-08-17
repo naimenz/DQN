@@ -78,7 +78,9 @@ class Buffer():
         # Actually we need to store enough to keep an entire extra episode because otherwise we could 
         # overwrite transitions in a current episode
         self.frame_size = max_size + max_ep_len
-        self.frame_tensor = torch.empty(size=(self.frame_size,) + im_dim, dtype=torch.float)
+        # NOTE TEST: using torch.half datatype because we don't have many discrete values
+        # and it uses a LOT of memory
+        self.frame_tensor = torch.empty(size=(self.frame_size,) + im_dim, dtype=torch.half)
 
         self.a_tensor = torch.LongTensor(size=(max_size,))
         self.r_tensor = torch.empty(size=(max_size,), dtype=torch.float)
@@ -175,8 +177,9 @@ class Buffer():
         # get the corresponding frames
         ftens = self.frame_tensor
         # TODO: make this not look so ABSOLUTELY horrible
-        s_sample = torch.stack([torch.stack([ftens[i % self.frame_size] for i in ix]) for ix in s_ix_sample])
-        sp_sample = torch.stack([torch.stack([ftens[i % self.frame_size] for i in ix]) for ix in sp_ix_sample])
+        # convert to float32
+        s_sample = torch.stack([torch.stack([ftens[i % self.frame_size] for i in ix]) for ix in s_ix_sample]).float()
+        sp_sample = torch.stack([torch.stack([ftens[i % self.frame_size] for i in ix]) for ix in sp_ix_sample]).float()
 
         return s_sample, a_sample, r_sample, sp_sample, d_sample
 
@@ -380,6 +383,33 @@ class DQN():
         loss.backward()
         optim.step()
 
+    # NOTE: new function to train from a state dict so I can pause and resume training
+    # Accepts no arguments beyond the state: does however assume that the dqn object has
+    # been initialised in the same way
+    def train_from_state(self, state):
+        # unpack all the things 
+        directory = state['directory']
+        n_evals = state['n_evals']
+        N = state['total_frames']
+        t = state['current_frame']
+        ep_t = state['episode_time']
+        current_state = state['current_state']
+        done = state['done']
+        optim = state['optim']
+        lr = state['lr']
+        model_params = state['model_params']
+        eps_epoch = state['eps_epoch']
+        ep0 = state['eps0']
+        ep1 = state['eps1']
+        buf = state['buffer']
+        holdout = state['holdout']
+        total_time_elapsed = state['total_time_elapsed']
+        # batch statistics
+        batch_time_elapsed = state['batch_time_elapsed']
+        holdout_scores['holdout_scores']
+        recent_ep = state['recent_ep']
+        ep_rets = state['ep_rets']
+
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
     # 10% of frames, and keep a buffer of 10% of frames
@@ -475,7 +505,6 @@ Score on holdout is {h_score}.
                 ep_t = 0
 
                 done = False
-                start = True
                 obs = env.reset()
                 # because we only have one frame so far, just make the initial state 4 copies of it
                 s = self.initial_phi(obs)
@@ -499,8 +528,6 @@ Score on holdout is {h_score}.
             # PLUS the done flag so I know if sp is terminal
             # AND the various times
             buf.add((s, act, reward, sp, done, ep_t, t))
-            # if we have added to the buffer then we are no longer in the first state
-            start = False
 
             # NOW WE SAMPLE A MINIBATCH and update on that
             minibatch = buf.sample(batch_size=32)
