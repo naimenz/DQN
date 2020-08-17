@@ -182,8 +182,10 @@ class DQN():
         self.eval_eps = eval_eps # epsilon to be used at evaluation time (typically lower than training eps)
         self.env = env
         self.gamma = gamma # discount rate (I think they used 0.99)
-        # NOTE TEST: replacing the in-built actions with just two that are actually useful in Pong
-        self.n_acts = 2
+        # NOTE TEST: replacing the in-built actions with just THREE (including no-op) that are actually useful in Pong
+        # NOTE TEST: declaring an action set to to use
+        self.action_set = [0,2,5]
+        self.n_acts = len(self.action_set)
         # self.n_acts = env.action_space.n # get the number of discrete actions possible
 
         # NOTE TEST: setting a maximum episode length of 2000 (will print episode lengths as I go though)
@@ -277,8 +279,8 @@ class DQN():
         # loop over steps in the episode
         while not done:
             act = self.get_act(s, self.eval_eps) # returns a 1-element tensor
-            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 5
+            # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
+            av = self.action_set[act]
             obs, reward, done, info = env.step(av) 
 
             # log state, act, reward
@@ -316,8 +318,8 @@ class DQN():
             states[t] = s
             # generate a random action given the current state
             act = self.get_act(s, 1.)
-            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 5
+            # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
+            av = self.action_set[act]
             # act in the environment
             obs, reward, done, _ = env.step(av)
 
@@ -513,38 +515,39 @@ Score on holdout is {h_score}.
             # NOW WE SAMPLE A MINIBATCH and update on that
             minibatch = buf.sample(batch_size=32)
             # wait until first frames are mostly out of buffer
-            if t > 100:
+            if t > 10:
                 ss = minibatch[0]
                 sps = minibatch[3]
-                print("DRAWING FIRST S AND SP OF MINIBATCH")
+                for i in range(buf_size):
+                    print(f"DRAWING {i} S AND SP OF MINIBATCH")
 
-                plt.subplot(221)
-                plt.imshow(ss[0][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                plt.colorbar()
-                plt.title("s frame 0")
-                plt.subplot(222)
-                plt.imshow(ss[0][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                plt.title("s frame 1")
-                plt.subplot(223)
-                plt.imshow(ss[0][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                plt.title("s frame 2")
-                plt.subplot(224)
-                plt.imshow(ss[0][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                plt.title("s frame 3")
-                plt.show()
-                plt.subplot(221)
-                plt.imshow(sps[0][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                plt.title("sp frame 0")
-                plt.subplot(222)
-                plt.imshow(sps[0][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                plt.title("sp frame 1")
-                plt.subplot(223)
-                plt.imshow(sps[0][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                plt.title("s frame 2")
-                plt.subplot(224)
-                plt.imshow(sps[0][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
-                plt.title("sp frame 3")
-                plt.show()
+                    plt.subplot(221)
+                    plt.imshow(ss[i][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                    plt.colorbar()
+                    plt.title("s frame 0")
+                    plt.subplot(222)
+                    plt.imshow(ss[i][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                    plt.title("s frame 1")
+                    plt.subplot(223)
+                    plt.imshow(ss[i][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                    plt.title("s frame 2")
+                    plt.subplot(224)
+                    plt.imshow(ss[i][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                    plt.title("s frame 3")
+                    plt.show()
+                    plt.subplot(221)
+                    plt.imshow(sps[i][0] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                    plt.title("sp frame 0")
+                    plt.subplot(222)
+                    plt.imshow(sps[i][1] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                    plt.title("sp frame 1")
+                    plt.subplot(223)
+                    plt.imshow(sps[i][2] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                    plt.title("s frame 2")
+                    plt.subplot(224)
+                    plt.imshow(sps[i][3] + 0.34218823529, vmin=0, vmax=1, cmap='gray')
+                    plt.title("sp frame 3")
+                    plt.show()
             self.update_minibatch(minibatch, optim)
 
             # prepare for next frame

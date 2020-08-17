@@ -191,8 +191,10 @@ class DQN():
         self.eval_eps = eval_eps # epsilon to be used at evaluation time (typically lower than training eps)
         self.env = env
         self.gamma = gamma # discount rate (I think they used 0.99)
-        # NOTE TEST: replacing the in-built actions with just two that are actually useful in Pong
-        self.n_acts = 2
+        # NOTE TEST: replacing the in-built actions with just THREE(now including noop) that are actually useful in Pong
+        # NOTE TEST: adding an action set to index
+        self.action_set = [0,2,5]
+        self.n_acts = len(self.action_set)
         # self.n_acts = env.action_space.n # get the number of discrete actions possible
 
         # NOTE TEST: setting a maximum episode length of 2000 (will print episode lengths as I go though)
@@ -286,8 +288,8 @@ class DQN():
         # loop over steps in the episode
         while not done:
             act = self.get_act(s, self.eval_eps) # returns a 1-element tensor
-            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 5
+            # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
+            av = self.action_set[act]
             obs, reward, done, info = env.step(av) 
 
             # log state, act, reward
@@ -323,8 +325,8 @@ class DQN():
             states[t] = s
             # generate a random action given the current state
             act = self.get_act(s, 1.)
-            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 5
+            # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
+            av = self.action_set[act]
             # act in the environment
             obs, reward, done, _ = env.step(av)
 
@@ -356,10 +358,12 @@ class DQN():
         # don't need gradients except for Q(s,a)
         all_q = self.compute_Qs(s)
         q = all_q[range(len(s)), a]
-        print(q.grad_fn)
         with torch.no_grad():
             # get the 'values' part of the max function and drop the 'indices'
-            qsp = torch.max(self.compute_Qs(sp), dim=1)[0]
+            # NOTE TEST LOG: recording the maximising actions
+            max_tuple = torch.max(self.compute_Qs(sp), dim=1)
+            print("Maximising indices",max_tuple[1])
+            qsp = max_tuple[0]
             # setting terminal states to 0
             qsp[d] = 0
             # getting Q values for actions
@@ -402,7 +406,6 @@ class DQN():
         holdout = self.generate_holdout(N=n_holdout)
         toc = time.perf_counter()
         print(f"Generating holdout took {toc - tic:0.4f} seconds")
-
 
         # starting and ending epsilon
         eps0 = 1.
@@ -447,7 +450,7 @@ Score on holdout is {h_score}.
                 """)
                 print(f"computing Qs on {n_holdout} holdout states took {liltoc - liltic:0.4f} seconds")
 
-                # set new recent eps
+                # set new recent eps threshold
                 recent_eps = len(ep_rets)
                 # NOTE LOG saving the stats so far 
                 if not directory is None:
@@ -480,8 +483,8 @@ Score on holdout is {h_score}.
             # generate an action given the current state
             eps = get_eps(t)
             act = self.get_act(s, eps)
-            # NOTE TEST: converting an action in (0,1) into 2,5 (up and down in atari)
-            av = 2 if act == 0 else 5
+            # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
+            av = self.action_set[act]
 
             # act in the environment
             obsp, reward, done, _ = env.step(av)

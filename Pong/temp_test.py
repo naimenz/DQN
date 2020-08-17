@@ -27,7 +27,7 @@ print(f"Old in list after operation: {li[0]}")
 # Add to a buffer and see what happens
 env = gym.make('Pong-v0', frameskip=4)
 dqn = DQN(env, gamma=0.99, eval_eps=0.05)
-dqn.train(1000, lr=1e-4, n_holdout=1, directory=None)
+dqn.train(100, lr=1e-4, n_holdout=1, directory=None)
 # max_size = 10
 # im_dim = dqn.processed_dim
 # state_depth = dqn.state_depth
