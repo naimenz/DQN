@@ -1,5 +1,6 @@
 """
 This is my attempt to implement DQN on the PONG environment from OpenAI gym.
+NOTE: This is the pausable version and currently DOESN'T SAVE RANDOM STATE so NOT REPRODUCIBLE
 
 To force myself to get better at version control, I will develop it all in this one file instead
 of making backups each time I change something.
@@ -9,6 +10,7 @@ and a github repo https://github.com/naimenz/DQN
 
 Building on the general structure I used for Sarsa/REINFORCE-type algorithms, I'll write a class to hold
 all the important bits and share parameters and stuff.
+
 """
 
 import numpy as np # using numpy as sparingly as possible, mainly for random numbers but also some other things
@@ -17,6 +19,7 @@ import torch.nn as nn
 import gym
 import matplotlib.pyplot as plt
 import time
+import copy
 
 # set a seed for reproducibility during implementation
 SEED = 42
@@ -274,7 +277,7 @@ class DQN():
         return s
 
     # run an episode in evaluation mode 
-    def evaluate(self):
+    def evaluate(self, render=False):
         # alias env
         env = self.env
         
@@ -366,7 +369,7 @@ class DQN():
             # get the 'values' part of the max function and drop the 'indices'
             # NOTE TEST LOG: recording the maximising actions
             max_tuple = torch.max(self.compute_Qs(sp), dim=1)
-            print("Maximising indices",max_tuple[1])
+            # print("Maximising indices",max_tuple[1])
             qsp = max_tuple[0]
             # setting terminal states to 0
             qsp[d] = 0
@@ -395,12 +398,12 @@ class DQN():
         n_evals = state['n_evals']
         N = state['total_frames']
         eps_epoch = state['eps_epoch']
-        ep0 = state['eps0']
-        ep1 = state['eps1']
-        holdout = state['holdout']
+        eps0 = state['eps0']
+        eps1 = state['eps1']
+        holdout = state['holdout'].float()
         lr = state['lr']
         # variable
-        t = state['current_frame']
+        t = state['current_time']
         ep_t = state['episode_time']
         s = state['current_state']
         done = state['done']
@@ -411,8 +414,12 @@ class DQN():
         # batch statistics
         batch_time_elapsed = state['batch_time_elapsed']
         holdout_scores = state['holdout_scores']
-        recent_ep = state['recent_ep']
-        ep_rets = state['ep_rets']
+        recent_eps = state['recent_eps']
+        ep_rets = state['ep_rets'] # history of episode returns
+        ep_ret = state['ep_ret'] # CURRENT return being accumulated
+
+        # load in model parameters
+        self.qnet.load_state_dict(model_params)
 
         # printing important variables at the start
         print(f"""\
@@ -430,6 +437,10 @@ Current batch ran for: {batch_time_elapsed}
         tic = time.perf_counter() # batch timer
         bigtic = time.perf_counter()# total timer
 
+        # CONSTRUCT EPSILON 
+        epstep = (eps1 - eps0)/eps_epoch # the quantity to add to eps every frame
+        get_eps = lambda t: eps0 + t*epstep if t < eps_epoch else eps1
+
         # MAIN TRAINING LOOP IN A TRY EXCEPT FOR CANCELLING
         while t < N:
             try:
@@ -442,7 +453,7 @@ Current batch ran for: {batch_time_elapsed}
                     holdout_scores.append(h_score)
                     toc = time.perf_counter()
                     print(
-                    f"""============== FRAME {t}/{N} (batch {(n_evals * t) // N)}/{n_evals}) ============== 
+                    f"""============== FRAME {t}/{N} (batch {(n_evals * t) // N}/{n_evals}) ============== 
 Last {N/n_evals} frames took {batch_time_elapsed + toc - tic:0.4f} seconds.
 Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
 Score on holdout is {h_score}.
@@ -508,15 +519,20 @@ Score on holdout is {h_score}.
                 s = sp
 
             except (KeyboardInterrupt, SystemExit):
+                input("Press Ctrl-C again to exit WITHOUT saving or enter to save")
                 print(f"\nSaving into {directory}/saved_state.tar")
                 # ENDING TIMERS
                 toc = time.perf_counter() # batch timer
                 bigtoc = time.perf_counter() # total timer
 
+                # GET MODEL PARAMETERS
+                self.qnet.state_dict(model_params)
+
+                print("TIME BEFORE SAVE:",t)
                 # WRITING VARIABLE BITS TO STATE DICT
                 state['current_time'] = t
                 state['episode_time'] = ep_t
-                state['current_state'] = current_state
+                state['current_state'] = s
                 state['done'] = done
                 state['optim'] = optim
                 state['model_params'] = model_params
@@ -525,18 +541,22 @@ Score on holdout is {h_score}.
                 # batch statistics
                 state['batch_time_elapsed'] = toc - tic
                 state['holdout_scores'] = holdout_scores
-                state['recent_ep'] = recent_ep
+                state['recent_eps'] = recent_eps
                 state['ep_rets'] = ep_rets
+                state['ep_ret'] = ep_ret # CURRENT return being accumulated
 
                 # WRITING STATE DICT TO FILE         
                 torch.save(state, f"{directory}/saved_state.tar")
                 # WRITING PAUSE MESSAGE TO info.txt
-                pause_message = """\
+                pause_message = f"""\
 Training paused at frame {t}/{N}.
 Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
 """
                 with open(f"{directory}/info.txt", 'w') as f: 
                    f.write(pause_message)
+
+                # Holding so that cancelling is possible
+                input("Press Ctrl-C again to exit or enter to continue")
 
         # AFTER WHILE LOOP AND TRY EXCEPT
         bigtoc = time.perf_counter()
@@ -544,10 +564,59 @@ Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
         # NOTE LOG: tracking episode returns
         return ep_rets, holdout_scores
 
+    # function to create a State dictionary to be used in training
+    def initialise_training_state(self, N, lr, n_holdout, directory):
+        # CALCULATING INITIAL VALUES
+        tenth_N = int(N/10)
+        buf_size = tenth_N
+        eps_epoch = tenth_N
+        # NOTE: episodes can go a lot longer in Pong
+        buf = Buffer(max_size=buf_size, im_dim=self.processed_dim, state_depth=self.state_depth, max_ep_len=self.max_ep_len)
+        tic = time.perf_counter()
+        holdout = self.generate_holdout(N=n_holdout)
+        toc = time.perf_counter()
+        print(f"Generating holdout took {toc - tic:0.4f} seconds")
+
+        state = dict()
+        # fixed throughout run
+        state['directory'] = directory 
+        state['env'] = copy.deepcopy(self.env)
+        state['n_evals'] = 50 # HARDCODED for now
+        state['total_frames'] = N 
+        state['eps_epoch'] = eps_epoch 
+        state['eps0'] = 1. # HARDCODED for now
+        state['eps1'] = 0.1 # HARDCODED for now
+        state['holdout'] = holdout.half()
+        state['lr'] = lr 
+        # variable
+        state['current_time'] = 0 
+        state['episode_time'] = 0
+        state['current_state'] = None # initially we have no state
+        state['done'] = True # done set to True so we will get an initial state
+        state['optim'] = torch.optim.Adam(self.qnet.parameters(), lr=lr) # initialise the optimiser as Adam for now 
+        state['model_params'] = self.qnet.state_dict()
+        state['buffer'] = buf 
+        state['total_time_elapsed'] = 0
+        # batch statistics
+        state['batch_time_elapsed'] = 0
+        state['holdout_scores'] = []
+        state['recent_eps'] = 0
+        state['ep_rets'] = [] 
+        state['ep_ret'] = 0
+
+        return state
+
+    def train(self, N, lr, n_holdout, directory):
+        # get an initial state dict
+        state = self.initialise_training_state(N, lr, n_holdout, directory)
+        # train with it
+        ep_rets, holdout_scores = self.train_from_state(state)
+        return ep_rets, holdout_scores
+
     # run the entire training algorithm for N FRAMES, not episodes
     # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
     # 10% of frames, and keep a buffer of 10% of frames
-    def train(self, N=10000, lr=1e-6, n_holdout=100, directory=None):
+    def OLD_train(self, N=10000, lr=1e-6, n_holdout=100, directory=None):
         n_evals = 50 # number of times to evaluate during training
         # at the beginning of training we generate a set of 100(?) holdout states
         # to be used to estimate the performance of the algorithm based

@@ -1,5 +1,6 @@
 """
 File for running the experiments, kept separate from class definitions.
+NOTE: Rewritten for pausable training
 
 TODO: see if there are issues with random number generation between files etc.
 """
@@ -23,18 +24,22 @@ env = gym.make('Pong-v0', frameskip=4)
 env.seed(SEED)
 
 # initialise agent
-dqn = DQN(env, gamma=0.99, eval_eps=0.05)
+dqn = DQN(env, gamma=0.999, eval_eps=0.05)
 
 # train
-n_frames = 1000
-lr = 1e-4
+n_frames = 1000000
+lr = 1e-5
 n_holdout = 1000
 # save output
-directory = 'experiments/run6'
+directory = 'experiments/run7'
 # make directory if it doesn't exist (if it does exist, throw an error so I have to switch lines if I wnat to overwrite
 Path(directory).mkdir(parents=True, exist_ok=False)
 # Path(directory).mkdir(parents=True, exist_ok=True)
 
+# TESTING TRAIN FROM STATE
+# state = torch.load(f"{directory}/saved_state.tar")
+# print(state['current_time'])
+# ep_rets, holdout_scores = dqn.train_from_state(state)
 ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, directory=directory)
 
 np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
