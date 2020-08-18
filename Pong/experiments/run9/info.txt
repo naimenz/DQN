@@ -1,0 +1,3 @@
+Training paused at frame 22543/100000.
+Learning rate 1e-05, buffer size 10000, holdout size 100.
+Time elapsed: 905.7469 seconds.

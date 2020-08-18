@@ -27,12 +27,12 @@ env.seed(SEED)
 dqn = DQN(env, gamma=0.999, eval_eps=0.05)
 
 # train
-n_frames = 10000
+n_frames = 100000
 lr = 1e-5
 n_holdout = 100
 n_eval_eps = 2
 # save output
-directory = 'experiments/run8'
+directory = 'experiments/run9'
 # make directory if it doesn't exist (if it does exist, throw an error so I have to switch lines if I wnat to overwrite
 # Path(directory).mkdir(parents=True, exist_ok=False)
 Path(directory).mkdir(parents=True, exist_ok=True)

@@ -1,2 +1,5 @@
 # don't need to track the pdf of the paper
 *.pdf
+# Don't track saved runs because the files are too big
+*.tar
+
