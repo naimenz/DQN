@@ -1,0 +1,9 @@
+# Larger test, did <= random
+PARAMETERS:
+n_frames=100000
+n_holdout=1000
+lr=1e-4
+gamma=0.99
+eps_epoch=10000
+buf_size=10000
+

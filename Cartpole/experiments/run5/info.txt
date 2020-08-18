@@ -1,0 +1,8 @@
+# Another successful run, basically the same return as run4
+- N=100000 (frames of training)
+- lr=1e-3 
+- n_holdout=1000
+Also maybe worth noting:
+- gamma=0.99
+- minibatch size=32
+- SEED=42

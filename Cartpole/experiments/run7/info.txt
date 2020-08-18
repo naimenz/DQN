@@ -1,0 +1,9 @@
+# This run I'm trying a lower learning rate, no discount, and more randomness at the start
+- N=1000000 (frames of training)
+- lr=1e-5 
+- n_holdout=1000
+Also maybe worth noting:
+- gamma=1.
+- minibatch size=32
+- SEED=42
+ALSO DOUBLING EPSILON EPOCH FROM N/10 -> 3*N/10

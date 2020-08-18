@@ -1,0 +1,9 @@
+Not sure how I'll format this yet in general but the parameters for this run
+were:
+- N=100000 (frames of training)
+- lr=1e-5 
+- n_holdout=500
+Also maybe worth noting:
+- gamma=0.99
+- minibatch size=32
+

@@ -1,0 +1,9 @@
+# First test run, took 29.4816 seconds
+PARAMETERS:
+n_frames=1000
+n_holdout=100
+lr=1e-4
+gamma=0.99
+eps_epoch=100
+buf_size=100
+
