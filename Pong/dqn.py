@@ -204,8 +204,9 @@ class DQN():
         self.n_acts = len(self.action_set)
         # self.n_acts = env.action_space.n # get the number of discrete actions possible
 
-        # NOTE TEST: setting a maximum episode length of 2000 (will print episode lengths as I go though)
-        self.max_ep_len = 2000
+        # NOTE TEST: setting a maximum episode length of 5000 (will print episode lengths as I go though)
+        # Episodes are unbounded but hopefully 5000 is a reasonable length (takes a lot of memory)
+        self.max_ep_len = 5000
         # function to convert to greyscale (takes np frames)
         self.to_greyscale = lambda rgb : np.dot(rgb[... , :3] , [0.299 , 0.587, 0.114]) 
 
@@ -277,7 +278,8 @@ class DQN():
         return s
 
     # run an episode in evaluation mode 
-    def evaluate(self, render=False):
+    # NOTE: render accepts a float for time to sleep on each frame
+    def evaluate(self, render=0):
         # alias env
         env = self.env
         
@@ -294,6 +296,9 @@ class DQN():
 
         # loop over steps in the episode
         while not done:
+            if render:
+                env.render()
+                time.sleep(render)
             act = self.get_act(s, self.eval_eps) # returns a 1-element tensor
             # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
             av = self.action_set[act]
@@ -394,7 +399,6 @@ class DQN():
         # unpack all the things 
         # fixed throughout the run
         directory = state['directory']
-        env = state['env']
         n_evals = state['n_evals']
         N = state['total_frames']
         eps_epoch = state['eps_epoch']
@@ -403,6 +407,7 @@ class DQN():
         holdout = state['holdout'].float()
         lr = state['lr']
         # variable
+        env_state = state['env_state']
         t = state['current_time']
         ep_t = state['episode_time']
         s = state['current_state']
@@ -420,6 +425,9 @@ class DQN():
 
         # load in model parameters
         self.qnet.load_state_dict(model_params)
+        # load in environment state (NOTE TODO: ASSUMES PONG frameskip=4 for now)
+        env = self.env
+        env.restore_full_state(env_state)
 
         # printing important variables at the start
         print(f"""\
@@ -530,6 +538,7 @@ Score on holdout is {h_score}.
 
                 print("TIME BEFORE SAVE:",t)
                 # WRITING VARIABLE BITS TO STATE DICT
+                state['env_state'] = env.clone_full_state()
                 state['current_time'] = t
                 state['episode_time'] = ep_t
                 state['current_state'] = s
@@ -580,7 +589,6 @@ Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
         state = dict()
         # fixed throughout run
         state['directory'] = directory 
-        state['env'] = copy.deepcopy(self.env)
         state['n_evals'] = 50 # HARDCODED for now
         state['total_frames'] = N 
         state['eps_epoch'] = eps_epoch 
@@ -589,6 +597,7 @@ Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
         state['holdout'] = holdout.half()
         state['lr'] = lr 
         # variable
+        state['env_state'] = env.clone_full_state() # CLONING state rather than env itself
         state['current_time'] = 0 
         state['episode_time'] = 0
         state['current_state'] = None # initially we have no state

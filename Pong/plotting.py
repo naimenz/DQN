@@ -16,7 +16,8 @@ def rets_from_rews(ep_rews, gamma):
 directory = 'experiments/run7'
 
 ep_rets = np.load(f"{directory}/DQNrets.npy")
-print(ep_rets.shape)
+plt.plot(ep_rets)
+plt.show()
 
 gamma = 0.999
 env = gym.make('Pong-v0', frameskip=4)
@@ -31,18 +32,18 @@ random_disc = []
 
 # evaluate on N episodes, and print idscounted and undiscounted return
 N = 30
-for i in range(N):
-    ep_states, ep_acts, ep_rews = dqn.evaluate()
-    # print("Qs:",dqn.compute_Qs(torch.stack(ep_states)))
-    # print("ACTS:",ep_acts)
-    undisc_rets.append(rets_from_rews(ep_rews, 1.)[0])
-    disc_rets.append(rets_from_rews(ep_rews, gamma)[0])
-    ep_states, ep_acts, ep_rews = random.evaluate()
-    random_undisc.append(rets_from_rews(ep_rews, 1.)[0])
-    random_disc.append(rets_from_rews(ep_rews, gamma)[0])
-    print("=========================")
-    print(f"Episode {i}, our agent got undiscounted:{undisc_rets[-1]}, discounted:{disc_rets[-1]}")
-    print(f"Episode {i}, random got undiscounted:{random_undisc[-1]}, discounted:{random_disc[-1]}")
+# for i in range(N):
+#     ep_states, ep_acts, ep_rews = dqn.evaluate(render=0.1)
+#     # print("Qs:",dqn.compute_Qs(torch.stack(ep_states)))
+#     # print("ACTS:",ep_acts)
+#     # undisc_rets.append(rets_from_rews(ep_rews, 1.)[0])
+#     # disc_rets.append(rets_from_rews(ep_rews, gamma)[0])
+#     # ep_states, ep_acts, ep_rews = random.evaluate(render=0.1)
+#     # random_undisc.append(rets_from_rews(ep_rews, 1.)[0])
+#     # random_disc.append(rets_from_rews(ep_rews, gamma)[0])
+#     print("=========================")
+#     # print(f"Episode {i}, our agent got undiscounted:{undisc_rets[-1]}, discounted:{disc_rets[-1]}")
+#     print(f"Episode {i}, random got undiscounted:{random_undisc[-1]}, discounted:{random_disc[-1]}")
 
 # np.save('temp_disc.npy', disc_rets)
 # np.save('temp_undisc.npy', undisc_rets)
@@ -54,6 +55,7 @@ undisc_rets = np.load('temp_undisc.npy')
 random_disc = np.load('random_disc.npy')
 random_undisc = np.load('random_undisc.npy')
 print(f" our agent got undiscounted:{np.mean(undisc_rets)}, discounted:{np.mean(disc_rets)}")
+print(f" our agent got std deviations undiscounted:{np.std(undisc_rets)}, discounted:{np.std(disc_rets)}")
 print(f" random got undiscounted:{np.mean(random_undisc)}, discounted:{np.mean(random_disc)}")
 
 plt.subplot(121)

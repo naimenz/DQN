@@ -1,0 +1,16 @@
+# First (semi-) successful run of Pong.
+# Finished with an average score of -12.89,
+# so roughly 21-8
+# NOTE: This was also the first proper run with pausable script (but pausing not used)
+# BUG: Episodes were longer than max_ep_len so a small few transitions may have been corrupted
+PARAMETERS:
+n_frames=1000000
+n_holdout=1000
+lr=1e-5
+gamma=0.999
+eps_epoch=10000
+buf_size=10000
+frameskip=4
+
+
+
