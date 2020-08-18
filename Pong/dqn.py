@@ -281,7 +281,7 @@ class DQN():
     # NOTE: render accepts a float for time to sleep on each frame
     def evaluate(self, render=0):
         # alias env
-        env = self.env
+        env = copy.deepcopy(self.env)
         
         # lists for logging
         ep_states = []
@@ -323,7 +323,7 @@ class DQN():
         done = True # indicate that we should restart episode immediately
 
         # alias env
-        env = self.env
+        env = copy.deepcopy(self.env)
         
         # while we haven't seen enough frames
         while t < N:
@@ -370,8 +370,8 @@ class DQN():
         rets = []
         for i in range(n):
             _, _, ep_rews = self.evaluate(render=0)
-            ep_rets = self.rets_from_rews(ep_rews, self.gamma)
-            rets.append(rets[0]) # episode return is return from t=0
+            eval_rets = self.rets_from_rews(ep_rews, self.gamma)
+            rets.append(eval_rets[0]) # episode return is return from t=0
         return np.mean(rets) # give mean return
 
 
@@ -435,7 +435,7 @@ class DQN():
         ep_t = state['episode_time']
         s = state['current_state']
         done = state['done']
-        optim = state['optim']
+        optim_state = state['optim_state']
         model_params = state['model_params']
         buf = state['buffer']
         total_time_elapsed = state['total_time_elapsed']
@@ -450,8 +450,11 @@ class DQN():
         # load in model parameters
         self.qnet.load_state_dict(model_params)
         # load in environment state (NOTE TODO: ASSUMES PONG frameskip=4 for now)
-        env = self.env
+        env = copy.deepcopy(self.env)
         env.restore_full_state(env_state)
+        # initialise and load optimiser state
+        optim = torch.optim.Adam(self.qnet.parameters(), lr=lr)
+        optim.load_state_dict(optim_state)
 
         # printing important variables at the start
         print(f"""\
@@ -460,8 +463,8 @@ Resuming training.
 Completed {t}/{N} frames (working on batch {1+(n_evals * t) // N}/{n_evals}).
 Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
 
-Current time elapsed: {total_time_elapsed}
-Current batch ran for: {batch_time_elapsed}
+Current time elapsed: {total_time_elapsed:0.4f} seconds.
+Current batch ran for: {batch_time_elapsed:0.4f} seconds.
 ============================================================================                
 """)
 
@@ -479,6 +482,7 @@ Current batch ran for: {batch_time_elapsed}
             # while we haven't seen enough frames
                 # NOTE LOG: evaluating 50 times throughout training
                 if n_evals*t % N == 0 and t > 0:
+                    print(" *** EVALUATING, DO NOT EXIT *** ")
                     liltic = time.perf_counter()
                     h_score = self.evaluate_holdout(holdout)
                     liltoc = time.perf_counter()
@@ -486,7 +490,10 @@ Current batch ran for: {batch_time_elapsed}
                     toc = time.perf_counter()
 
                     # NOTE TEST: evaluating the agent on n_eval_eps (10) episodes
+                    etic = time.perf_counter()
                     eval_score = self.evaluate_on_n(n_eval_eps)
+                    etoc = time.perf_counter()
+                    print(f"Evaluation on {n_eval_eps} episodes took {etoc - etic:0.4f} seconds")
                     eval_scores.append(eval_score) # add it to the list
 
                     print(
@@ -494,6 +501,7 @@ Current batch ran for: {batch_time_elapsed}
 Last {N/n_evals} frames took {batch_time_elapsed + toc - tic:0.4f} seconds.
 Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
 Score on holdout is {h_score}.
+Evaluation score on {n_eval_eps} episodes is {eval_score}.
                     """)
                     batch_time_elapsed = 0 # resetting time elapsed
 
@@ -573,12 +581,12 @@ Score on holdout is {h_score}.
                 state['episode_time'] = ep_t
                 state['current_state'] = s
                 state['done'] = done
-                state['optim'] = optim
+                state['optim_state'] = optim.state_dict()
                 state['model_params'] = model_params
                 state['buffer'] = buf
                 state['total_time_elapsed'] = total_time_elapsed + (bigtoc - bigtic)
                 # batch statistics
-                state['batch_time_elapsed'] = toc - tic
+                state['batch_time_elapsed'] = batch_time_elapsed + (toc - tic)
                 state['holdout_scores'] = holdout_scores
                 state['recent_eps'] = recent_eps
                 state['ep_rets'] = ep_rets
@@ -591,6 +599,7 @@ Score on holdout is {h_score}.
                 pause_message = f"""\
 Training paused at frame {t}/{N}.
 Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
+Time elapsed: {state['total_time_elapsed']:0.4f} seconds.
 """
                 with open(f"{directory}/info.txt", 'w') as f: 
                    f.write(pause_message)
@@ -605,7 +614,7 @@ Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
         return ep_rets, holdout_scores
 
     # function to create a State dictionary to be used in training
-    def initialise_training_state(self, N, lr, n_holdout, directory):
+    def initialise_training_state(self, N, lr, n_holdout, n_eval_eps, directory):
         # CALCULATING INITIAL VALUES
         tenth_N = int(N/10)
         buf_size = tenth_N
@@ -627,14 +636,14 @@ Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
         state['eps1'] = 0.1 # HARDCODED for now
         state['holdout'] = holdout.half()
         state['lr'] = lr 
-        state['n_eval_eps'] = 10 # HARDCODED for now
+        state['n_eval_eps'] = n_eval_eps # HARDCODED for now
         # variable
-        state['env_state'] = env.clone_full_state() # CLONING state rather than env itself
+        state['env_state'] = self.env.clone_full_state() # CLONING state rather than env itself
         state['current_time'] = 0 
         state['episode_time'] = 0
         state['current_state'] = None # initially we have no state
         state['done'] = True # done set to True so we will get an initial state
-        state['optim'] = torch.optim.Adam(self.qnet.parameters(), lr=lr) # initialise the optimiser as Adam for now 
+        state['optim_state'] = torch.optim.Adam(self.qnet.parameters(), lr=lr).state_dict() # initialise the optimiser as Adam for now 
         state['model_params'] = self.qnet.state_dict()
         state['buffer'] = buf 
         state['total_time_elapsed'] = 0
@@ -653,135 +662,4 @@ Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
         state = self.initialise_training_state(N, lr, n_holdout, directory)
         # train with it
         ep_rets, holdout_scores = self.train_from_state(state)
-        return ep_rets, holdout_scores
-
-    # run the entire training algorithm for N FRAMES, not episodes
-    # in line with their parameters, we will decrease eps from 1 to 0.1 linearly over the first
-    # 10% of frames, and keep a buffer of 10% of frames
-    def OLD_train(self, N=10000, lr=1e-6, n_holdout=100, directory=None):
-        n_evals = 50 # number of times to evaluate during training
-        # at the beginning of training we generate a set of 100(?) holdout states
-        # to be used to estimate the performance of the algorithm based
-        # on its average Q on these states
-        tenth_N = int(N/10)
-        buf_size = tenth_N
-        eps_epoch = tenth_N
-        # NOTE: episodes can go a lot longer in Pong
-        buf = Buffer(max_size=buf_size, im_dim=self.processed_dim, state_depth=self.state_depth, max_ep_len=self.max_ep_len)
-
-        # alias env
-        env = self.env
-
-        print("=============================")
-        print(f"BEGINNING TRAINING with N={N}, lr={lr}, n_holdout={n_holdout}")
-        print(f"buffer size={buf_size}, epsilon epoch={eps_epoch}")
-        print("=============================")
-        tic = time.perf_counter()
-        holdout = self.generate_holdout(N=n_holdout)
-        toc = time.perf_counter()
-        print(f"Generating holdout took {toc - tic:0.4f} seconds")
-
-        # starting and ending epsilon
-        eps0 = 1.
-        eps1 = 0.1
-        epstep = (eps1 - eps0)/eps_epoch # the quantity to add to eps every frame
-        get_eps = lambda t: eps0 + t*epstep if t < eps_epoch else eps1
-
-        # I'm going to try initialising the optimiser in this function,
-        # as it isn't needed outside of training.
-        # I'm using RMSProp because they used RMSProp in the paper and i'm lazy
-        # NOTE TEST: Using Adam instead just to see what happens
-        optim = torch.optim.Adam(self.qnet.parameters(), lr=lr)
-
-        # NOTE LOG: I'm going to track return per episode for testing
-        ep_ret = 0
-        ep_rets = []
-        holdout_scores = []
-        recent_eps = 0
-
-        t = 0 # frame counter
-        done = True # indicate that we should restart episode immediately
-        
-        # NOTE LOG: timing
-        bigtic = time.perf_counter()
-        tic = time.perf_counter()
-        
-        # while we haven't seen enough frames
-        while t < N:
-            # NOTE LOG: evaluating 50 times throughout training
-            if n_evals*t % N == 0 and t > 0:
-                liltic = time.perf_counter()
-                h_score = self.evaluate_holdout(holdout)
-                liltoc = time.perf_counter()
-                holdout_scores.append(h_score)
-                toc = time.perf_counter()
-                print(
-                f"""============== FRAME {t}/{N} ============== 
-Last {N/n_evals} frames took {toc - tic:0.4f} seconds.
-Mean of recent episodes is {np.mean(ep_rets[recent_eps:])}.
-Score on holdout is {h_score}.
-                """)
-                print(f"computing Qs on {n_holdout} holdout states took {liltoc - liltic:0.4f} seconds")
-
-                # set new recent eps threshold
-                recent_eps = len(ep_rets)
-                # NOTE LOG saving the stats so far 
-                if not directory is None:
-                    np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
-                    np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
-                    # NOTE LOG I will overwrite parameters each time because they are big
-                    self.save_params(f"{directory}/DQNparams.dat")
-                    # save parameters separately 10 times
-                    if 10*t % N == 0:
-                        self.save_params(f"{directory}/{t}DQNparams.dat")
-                tic = time.perf_counter()
-
-            if done: # reset environment for a new episode
-                # NOTE LOG: tracking episode return
-                if t > 0: # if this isn't the first episode
-                    ep_rets.append(ep_ret)
-                    # NOTE LOG: printing the length of the previous episode
-                    print(f"Episode {len(ep_rets)} had length {ep_t}")
-                ep_ret = 0
-
-                # NOTE tracking episode time 
-                ep_t = 0
-
-                done = False
-                obs = env.reset()
-                # because we only have one frame so far, just make the initial state 4 copies of it
-                s = self.initial_phi(obs)
-
-            # generate an action given the current state
-            eps = get_eps(t)
-            act = self.get_act(s, eps)
-            # NOTE TEST: converting an action in (0,1,2) into 0,2,5 (stay still, up and down in atari)
-            av = self.action_set[act]
-
-            # act in the environment
-            obsp, reward, done, _ = env.step(av)
-
-            # NOTE LOG: tracking episode return
-            ep_ret = ep_ret + (self.gamma**ep_t) * reward
-
-            # get the next state
-            sp = self.get_phi(s, obsp)
-
-            # add all this to the experience buffer
-            # PLUS the done flag so I know if sp is terminal
-            # AND the various times
-            buf.add((s, act, reward, sp, done, ep_t, t))
-
-            # NOW WE SAMPLE A MINIBATCH and update on that
-            minibatch = buf.sample(batch_size=32)
-            self.update_minibatch(minibatch, optim)
-
-            # prepare for next frame
-            t += 1
-            ep_t += 1 # updating the episode time as well
-            s = sp
-
-        bigtoc = time.perf_counter()
-        print(f"ALL TRAINING took {bigtoc - bigtic:0.4f} seconds")
-        # NOTE LOG: tracking episode returns
         return ep_rets, holdout_scores

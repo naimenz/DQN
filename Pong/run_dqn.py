@@ -27,20 +27,21 @@ env.seed(SEED)
 dqn = DQN(env, gamma=0.999, eval_eps=0.05)
 
 # train
-n_frames = 1000000
+n_frames = 10000
 lr = 1e-5
-n_holdout = 1000
+n_holdout = 100
+n_eval_eps = 2
 # save output
-directory = 'experiments/run7'
+directory = 'experiments/run8'
 # make directory if it doesn't exist (if it does exist, throw an error so I have to switch lines if I wnat to overwrite
-Path(directory).mkdir(parents=True, exist_ok=False)
-# Path(directory).mkdir(parents=True, exist_ok=True)
+# Path(directory).mkdir(parents=True, exist_ok=False)
+Path(directory).mkdir(parents=True, exist_ok=True)
 
 # TESTING TRAIN FROM STATE
-# state = torch.load(f"{directory}/saved_state.tar")
-# print(state['current_time'])
+state = torch.load(f"{directory}/saved_state.tar")
+print(state['current_time'])
 # ep_rets, holdout_scores = dqn.train_from_state(state)
-ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, directory=directory)
+ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, n_eval_eps=n_eval_eps, directory=directory)
 
 np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
 np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
