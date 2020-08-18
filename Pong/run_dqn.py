@@ -40,8 +40,8 @@ Path(directory).mkdir(parents=True, exist_ok=True)
 # TESTING TRAIN FROM STATE
 state = torch.load(f"{directory}/saved_state.tar")
 print(state['current_time'])
-# ep_rets, holdout_scores = dqn.train_from_state(state)
-ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, n_eval_eps=n_eval_eps, directory=directory)
+ep_rets, holdout_scores = dqn.train_from_state(state)
+# ep_rets, holdout_scores = dqn.train(N=n_frames, lr=lr, n_holdout=n_holdout, n_eval_eps=n_eval_eps, directory=directory)
 
 np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
 np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))

@@ -657,9 +657,9 @@ Time elapsed: {state['total_time_elapsed']:0.4f} seconds.
 
         return state
 
-    def train(self, N, lr, n_holdout, directory):
+    def train(self, N, lr, n_holdout, n_eval_eps, directory):
         # get an initial state dict
-        state = self.initialise_training_state(N, lr, n_holdout, directory)
+        state = self.initialise_training_state(N, lr, n_holdout, n_eval_eps, directory)
         # train with it
         ep_rets, holdout_scores = self.train_from_state(state)
         return ep_rets, holdout_scores
