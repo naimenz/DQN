@@ -205,8 +205,8 @@ class DQN():
         # self.n_acts = env.action_space.n # get the number of discrete actions possible
 
         # NOTE TEST: setting a maximum episode length of 5000 (will print episode lengths as I go though)
-        # Episodes are unbounded but hopefully 5000 is a reasonable length (takes a lot of memory)
-        self.max_ep_len = 5000
+        # Episodes are unbounded but hopefully 10000 is a reasonable length (takes a lot of memory)
+        self.max_ep_len = 10000
         # function to convert to greyscale (takes np frames)
         self.to_greyscale = lambda rgb : np.dot(rgb[... , :3] , [0.299 , 0.587, 0.114]) 
 
@@ -353,6 +353,28 @@ class DQN():
         Qmax = torch.max(self.compute_Qs(holdout), dim=1)[0]
         return torch.mean(Qmax)
 
+
+    def rets_from_rews(self, ep_rews, gamma):
+        T = len(ep_rews) 
+        rets = torch.tensor(ep_rews, dtype=torch.float)
+        for i in reversed(range(T)):
+            if i < T-1:
+                rets[i] += gamma*rets[i+1]
+        # return for final timestep is just 0
+        return rets
+
+    # evaluate current Q function on n episodes with self.eval_eps randomness
+    # NOTE: Gives DISCOUNTED return
+    def evaluate_on_n(self, n):
+        # collect returns
+        rets = []
+        for i in range(n):
+            _, _, ep_rews = self.evaluate(render=0)
+            ep_rets = self.rets_from_rews(ep_rews, self.gamma)
+            rets.append(rets[0]) # episode return is return from t=0
+        return np.mean(rets) # give mean return
+
+
     # functions to save and load a model
     def save_params(self, filename):
         s_dict = self.qnet.state_dict()
@@ -406,6 +428,7 @@ class DQN():
         eps1 = state['eps1']
         holdout = state['holdout'].float()
         lr = state['lr']
+        n_eval_eps = state['n_eval_eps']
         # variable
         env_state = state['env_state']
         t = state['current_time']
@@ -422,6 +445,7 @@ class DQN():
         recent_eps = state['recent_eps']
         ep_rets = state['ep_rets'] # history of episode returns
         ep_ret = state['ep_ret'] # CURRENT return being accumulated
+        eval_scores = state['eval_scores'] # List of batch scores on n_eval_eps episodes
 
         # load in model parameters
         self.qnet.load_state_dict(model_params)
@@ -460,6 +484,11 @@ Current batch ran for: {batch_time_elapsed}
                     liltoc = time.perf_counter()
                     holdout_scores.append(h_score)
                     toc = time.perf_counter()
+
+                    # NOTE TEST: evaluating the agent on n_eval_eps (10) episodes
+                    eval_score = self.evaluate_on_n(n_eval_eps)
+                    eval_scores.append(eval_score) # add it to the list
+
                     print(
                     f"""============== FRAME {t}/{N} (batch {(n_evals * t) // N}/{n_evals}) ============== 
 Last {N/n_evals} frames took {batch_time_elapsed + toc - tic:0.4f} seconds.
@@ -474,6 +503,7 @@ Score on holdout is {h_score}.
                     if not directory is None:
                         np.save(f"{directory}/DQNrets.npy", np.array(ep_rets))
                         np.save(f"{directory}/DQNh_scores.npy", np.array(holdout_scores))
+                        np.save(f"{directory}/DQNeval_scores.npy", np.array(eval_scores))
                         # NOTE LOG I will overwrite parameters each time because they are big
                         self.save_params(f"{directory}/DQNparams.dat")
                         # save parameters separately 10 times
@@ -553,6 +583,7 @@ Score on holdout is {h_score}.
                 state['recent_eps'] = recent_eps
                 state['ep_rets'] = ep_rets
                 state['ep_ret'] = ep_ret # CURRENT return being accumulated
+                state['eval_scores'] = eval_scores
 
                 # WRITING STATE DICT TO FILE         
                 torch.save(state, f"{directory}/saved_state.tar")
@@ -596,6 +627,7 @@ Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
         state['eps1'] = 0.1 # HARDCODED for now
         state['holdout'] = holdout.half()
         state['lr'] = lr 
+        state['n_eval_eps'] = 10 # HARDCODED for now
         # variable
         state['env_state'] = env.clone_full_state() # CLONING state rather than env itself
         state['current_time'] = 0 
@@ -612,6 +644,7 @@ Learning rate {lr}, buffer size {buf.max_size}, holdout size {len(holdout)}.
         state['recent_eps'] = 0
         state['ep_rets'] = [] 
         state['ep_ret'] = 0
+        state['eval_scores'] = []
 
         return state
 
