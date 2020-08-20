@@ -32,8 +32,8 @@ random_disc = []
 
 # evaluate on N episodes, and print idscounted and undiscounted return
 N = 30
-# for i in range(N):
-#     ep_states, ep_acts, ep_rews = dqn.evaluate(render=0.1)
+for i in range(N):
+    ep_states, ep_acts, ep_rews = dqn.evaluate(render=0.1)
 #     # print("Qs:",dqn.compute_Qs(torch.stack(ep_states)))
 #     # print("ACTS:",ep_acts)
 #     # undisc_rets.append(rets_from_rews(ep_rews, 1.)[0])
